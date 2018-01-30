@@ -28,7 +28,7 @@ functions:
     role: storeDataRole
     events:
       - http:
-          path: v1/store/{deviceId}/sendtab
+          path: v1/store/{uid}/{deviceId}/sendtab
           method: post
           cors: true
           # authorizer: fxaAuthorizer
@@ -37,7 +37,7 @@ functions:
     role: getDataRole
     events:
       - http:
-          path: v1/store/{deviceId}/sendtab
+          path: v1/store/{uid}/{deviceId}/sendtab
           method: get
           cors: true
           request:

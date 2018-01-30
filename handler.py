@@ -24,15 +24,34 @@ s3 = boto3.resource("s3")
 ddb = boto3.resource("dynamodb")
 index_table = ddb.Table(DDB_TABLE)
 
+
+class HandlerException(Exception):
+    def __init__(self, status_code=500, message="Unknown Error"):
+        self.status_code = status_code,
+        self.message = message
+
+    def __str__(self):
+        return "{}: {}".format(self.status_code, self.message)
+
+
 def log_exceptions(f):
     @wraps(f)
     def wrapper(*args, **kwargs):
         try:
             return f(*args, **kwargs)
         except Exception as exc:
-            logger.exception("Exception running _store_data")
+            logger.exception("Exception running _store_data: {}".format(exc))
             raise
     return wrapper
+
+
+def fxa_validate(event):
+    """Do whatever need be done to validate the FxA Token.
+
+    Raise a HandlerException on error.
+
+    """
+    pass
 
 
 @log_exceptions
@@ -40,6 +59,11 @@ def store_data(event, context):
     """Store data in S3 and index it in DynamoDB"""
     logger.info("Event was set to: {}".format(event))
     device_id = event["pathParameters"]["deviceId"]
+    # fx_uid = event["pathParameters"]["uid"]
+    try:
+        fxa_validate(event)
+    except HandlerException as ex:
+        return dict(statusCode=ex.status_code, body=ex.message)
     try:
         req_json = json.loads(event["body"])
     except ValueError:
@@ -68,8 +92,14 @@ def get_data(event, context):
     """Retrieve data from S3 using DynamoDB index"""
     logger.info("Event was set to: {}".format(event))
     device_id = event["pathParameters"]["deviceId"]
+    # fx_uid = event["pathParameters"]["uid"]
+    try:
+        fxa_validate(event)
+    except HandlerException as ex:
+        return dict(statusCode=ex.status_code, body=ex.message)
     start_timestamp = None
-    if event["queryStringParameters"] and "index" in event["queryStringParameters"]:
+    if (event["queryStringParameters"] and
+            "index" in event["queryStringParameters"]):
         start_timestamp = int(event["queryStringParameters"]["index"])
         logger.info("Start timestamp: {}".format(start_timestamp))
     key_cond = Key("fxa_uid").eq(device_id)
