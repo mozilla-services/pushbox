@@ -45,6 +45,7 @@ functions:
               querystrings:
                 index: false
                 max_size: false
+                count: false
           # authorizer: fxaAuthorizer
   # fxaAuthorizer:
     # handler: ...
@@ -91,12 +92,12 @@ resources:
         AttributeDefinitions:
           - AttributeName: fxa_uid
             AttributeType: S
-          - AttributeName: timestamp
+          - AttributeName: index
             AttributeType: N
         KeySchema:
           - AttributeName: fxa_uid
             KeyType: HASH
-          - AttributeName: timestamp
+          - AttributeName: index
             KeyType: RANGE
         ProvisionedThroughput:
           ReadCapacityUnits: 5
