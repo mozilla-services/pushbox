@@ -19,5 +19,8 @@
   "bugs": {
     "url": ""
   },
-  "homepage": ""
+  "homepage": "",
+  "devDependencies": {
+    "serverless-offline": "^3.16.0"
+  }
 }

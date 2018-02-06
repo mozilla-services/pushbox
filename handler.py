@@ -63,28 +63,57 @@ def store_data(event, context):
     try:
         fxa_validate(event)
     except HandlerException as ex:
-        return dict(statusCode=ex.status_code, body=ex.message)
+        return dict(
+            headers={"Content-Type": "application/json"},
+            statusCode=ex.status_code,
+            body=dict(
+                status=ex.status_code,
+                error=ex.message
+            )
+        )
     try:
         req_json = json.loads(event["body"])
     except ValueError:
-        return dict(statusCode=400, body="Invalid payload")
+        return dict(
+            headers={"Content-Type": "application/json"},
+            statusCode=400,
+            body=dict(
+                status=200,
+                error="Invalid payload"
+            )
+        )
     s3_data = req_json["data"].encode("utf-8")
+    ttl = req_json("ttl", DEFAULT_TTL)
     s3_filename = device_id + uuid.uuid4().hex
     s3.Object(S3_BUCKET, s3_filename).put(Body=s3_data)
-    index_table.put_item(
-        Item=dict(
-            fxa_uid=device_id,
-            timestamp=int(time.time()*(10**9)),
-            ttl=int(time.time()) + DEFAULT_TTL,
-            s3_filename=s3_filename,
-            s3_file_size=len(s3_data)
+    index = int(time.time()*(10**9))
+    try:
+        index_table.put_item(
+            Item=dict(
+                fxa_uid=device_id,
+                index=index,
+                ttl=int(time.time()) + ttl,
+                s3_filename=s3_filename,
+                s3_file_size=len(s3_data)
+            )
+        )
+    except Exception as ex:  # TODO: Limit this to just AWS errors
+        return dict(
+            headers={"Content-Type": "application/json"},
+            statusCode=500,
+            body=dict(
+                status=500,
+                error=ex.message,
+            )
+        )
+    return dict(
+        headers={"Content-Type": "application/json"},
+        statusCode=200,
+        body=dict(
+            status=200,
+            index=index,
         )
     )
-    result = {
-        'statusCode': 200,
-        'body': "Stored",
-    }
-    return result
 
 
 @log_exceptions
@@ -92,42 +121,58 @@ def get_data(event, context):
     """Retrieve data from S3 using DynamoDB index"""
     logger.info("Event was set to: {}".format(event))
     device_id = event["pathParameters"]["deviceId"]
+    # get the channelid ('sendTab'?)
+    channelid = "sendtab"
+    limit = event["pathParameters"].get("limit")
+    if not limit:
+        limit = 10
+    limit = min(limit, 10)
     # fx_uid = event["pathParameters"]["uid"]
     try:
         fxa_validate(event)
     except HandlerException as ex:
-        return dict(statusCode=ex.status_code, body=ex.message)
-    start_timestamp = None
+        return dict(
+            headers={"Content-Type": "application/json"},
+            statusCode=ex.status_code,
+            body=dict(
+                status=ex.status_code,
+                error=ex.message
+            )
+        )
+    start_index = None
     if (event["queryStringParameters"] and
             "index" in event["queryStringParameters"]):
-        start_timestamp = int(event["queryStringParameters"]["index"])
-        logger.info("Start timestamp: {}".format(start_timestamp))
+        start_index = int(event["queryStringParameters"]["index"])
+        logger.info("Start index: {}".format(start_index))
     key_cond = Key("fxa_uid").eq(device_id)
-    if start_timestamp:
-        key_cond = key_cond & Key("timestamp").gt(start_timestamp)
+    if start_index:
+        key_cond = key_cond & Key("index").gt(start_index)
     results = index_table.query(
         Select="ALL_ATTRIBUTES",
         KeyConditionExpression=key_cond,
         ConsistentRead=True,
-        Limit=10,
+        Limit=limit,
     ).get("Items", [])
     # Fetch all the payloads
     for item in results:
         response = s3.Object(S3_BUCKET, item["s3_filename"]).get()
         data = response["Body"].read().decode('utf-8')
-        item["payload"] = data
+        item["data"] = data
+        item["channel"] = channelid
+        if 'index' not in item:
+            item["index"] = item["timestamp"]
+            del(item["timestamp"])
     # Serialize the results for delivery
-    messages = [{"timestamp": int(x["timestamp"]), "data": x["payload"]}
+    messages = [{"index": int(x["index"]), "data": x["data"]}
                 for x in results]
-    payload = {"last": True, "index": start_timestamp}
+    payload = {"last": True, "index": start_index}
     if results:
-        payload["last"] = len(results) < 10
+        # should this be comparing against "scannedCount"?
+        payload["last"] = len(results) < limit
         payload["index"] = int(results[-1]["timestamp"])
         payload["messages"] = messages
-    return {
-        'statusCode': 200,
-        'body': json.dumps(payload),
-        'headers': {
-            "Content-Type": "application/json"
-        },
-    }
+    return dict(
+        headers={"Content-Type": "application/json"},
+        status=200,
+        body=json.dumps(payload),
+    )

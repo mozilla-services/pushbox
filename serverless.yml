@@ -1,6 +1,6 @@
 service: sendtab
 
-frameworkVersion: "=1.25.0"
+frameworkVersion: "=1.26.0"
 
 provider:
   name: aws
@@ -15,12 +15,13 @@ provider:
 
 plugins:
   - serverless-python-requirements
-
+  - serverless-offline
 package:
   exclude:
     - .gitignore
     - .idea
     - node_modules
+    - scripts
 
 functions:
   store_data:
@@ -45,6 +46,7 @@ functions:
               querystrings:
                 index: false
                 max_size: false
+                count: false
           # authorizer: fxaAuthorizer
   # fxaAuthorizer:
     # handler: ...
@@ -91,12 +93,12 @@ resources:
         AttributeDefinitions:
           - AttributeName: fxa_uid
             AttributeType: S
-          - AttributeName: timestamp
+          - AttributeName: index
             AttributeType: N
         KeySchema:
           - AttributeName: fxa_uid
             KeyType: HASH
-          - AttributeName: timestamp
+          - AttributeName: index
             KeyType: RANGE
         ProvisionedThroughput:
           ReadCapacityUnits: 5
