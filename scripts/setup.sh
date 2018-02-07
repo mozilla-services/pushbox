@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # install serverless locally
 echo npm install serverless
 # npm installs binary files to node_modules/.bin
