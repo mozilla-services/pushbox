@@ -66,10 +66,10 @@ def store_data(event, context):
         return dict(
             headers={"Content-Type": "application/json"},
             statusCode=ex.status_code,
-            body=dict(
+            body=json.dumps(dict(
                 status=ex.status_code,
                 error=ex.message
-            )
+            ))
         )
     try:
         req_json = json.loads(event["body"])
@@ -77,13 +77,13 @@ def store_data(event, context):
         return dict(
             headers={"Content-Type": "application/json"},
             statusCode=400,
-            body=dict(
+            body=json.dumps(dict(
                 status=200,
                 error="Invalid payload"
-            )
+            ))
         )
     s3_data = req_json["data"].encode("utf-8")
-    ttl = req_json("ttl", DEFAULT_TTL)
+    ttl = req_json.get("ttl", DEFAULT_TTL)
     s3_filename = device_id + uuid.uuid4().hex
     s3.Object(S3_BUCKET, s3_filename).put(Body=s3_data)
     index = int(time.time()*(10**9))
@@ -101,18 +101,18 @@ def store_data(event, context):
         return dict(
             headers={"Content-Type": "application/json"},
             statusCode=500,
-            body=dict(
+            body=json.dumps(dict(
                 status=500,
                 error=ex.message,
-            )
+            ))
         )
     return dict(
         headers={"Content-Type": "application/json"},
         statusCode=200,
-        body=dict(
+        body=json.dumps(dict(
             status=200,
             index=index,
-        )
+        ))
     )
 
 
@@ -134,10 +134,10 @@ def get_data(event, context):
         return dict(
             headers={"Content-Type": "application/json"},
             statusCode=ex.status_code,
-            body=dict(
+            body=json.dumps(dict(
                 status=ex.status_code,
                 error=ex.message
-            )
+            ))
         )
     start_index = None
     if (event["queryStringParameters"] and
@@ -159,7 +159,7 @@ def get_data(event, context):
         data = response["Body"].read().decode('utf-8')
         item["data"] = data
         item["channel"] = channelid
-        if 'index' not in item:
+        if 'index' not in item and item.get("timestamp"):
             item["index"] = item["timestamp"]
             del(item["timestamp"])
     # Serialize the results for delivery
