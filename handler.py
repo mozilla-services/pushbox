@@ -66,10 +66,10 @@ def store_data(event, context):
         return dict(
             headers={"Content-Type": "application/json"},
             statusCode=ex.status_code,
-            body=json.dumps(dict(
+            body=dict(
                 status=ex.status_code,
                 error=ex.message
-            ))
+            )
         )
     try:
         req_json = json.loads(event["body"])
@@ -101,10 +101,10 @@ def store_data(event, context):
         return dict(
             headers={"Content-Type": "application/json"},
             statusCode=500,
-            body=json.dumps(dict(
+            body=dict(
                 status=500,
                 error=ex.message,
-            ))
+            )
         )
     return dict(
         headers={"Content-Type": "application/json"},
