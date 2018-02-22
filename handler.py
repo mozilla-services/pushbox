@@ -3,6 +3,7 @@ import logging
 import os
 import time
 import uuid
+import urllib2
 from functools import wraps
 
 import boto3
@@ -45,13 +46,56 @@ def log_exceptions(f):
     return wrapper
 
 
-def fxa_validate(event):
-    """Do whatever need be done to validate the FxA Token.
+def fxa_validate(event, device_id=None):
+    """Return list of actions that this request is authorized to perform.
 
     Raise a HandlerException on error.
 
     """
-    pass
+    # extract the FxA OAuth token from the Authorization header
+    try:
+        auth = event["headers"]["authorization"]
+    except KeyError:
+        raise HandlerException(
+            status_code=401,
+            message="Missing authorization header")
+    try:
+        response = urllib2.urlopen(
+            "https://oauth.accounts.firefox.com/v1/verify",
+            data=auth,
+            timeout=5).read()
+        token = json.loads(response)["token"]
+        if token == "https://identity.mozilla.com/apps/pushbox/":
+            return ["send", "recv"]
+        elif token == "https://identity.mozilla.com/apps/pushbox/send":
+            return ["send"]
+        elif token == "https://identity.mozilla.com/apps/pushbox/recv":
+            return ["recv"]
+        elif (token ==
+              "https://identity.mozilla.com/apps/pushbox/send/{}".format(
+                  device_id)):
+            return ["send"]
+        elif (token ==
+              "https://identity.mozilla.com/apps/pushbox/recv/{}".format(
+                  device_id)):
+            return ["recv"]
+        else:
+            raise HandlerException(
+                status_code=502,
+                message="Unknown or invalid token response received"
+            )
+    except KeyError:
+        raise HandlerException(
+            status_code=500,
+            message="Token not found in authorization response")
+    except urllib2.URLError as ex:
+        raise HandlerException(
+            status_code=502,
+            message="Could not verify auth {}".format(ex))
+    except ValueError as ex:
+        raise HandlerException(
+            status_code=502,
+            message="Could not parse auth response {}".format(ex))
 
 
 @log_exceptions
@@ -61,7 +105,11 @@ def store_data(event, context):
     device_id = event["pathParameters"]["deviceId"]
     # fx_uid = event["pathParameters"]["uid"]
     try:
-        fxa_validate(event)
+        if "send" not in fxa_validate(event, device_id):
+            raise HandlerException(
+                status_code=401,
+                message="Operation not permitted"
+            )
     except HandlerException as ex:
         return dict(
             headers={"Content-Type": "application/json"},
@@ -129,7 +177,11 @@ def get_data(event, context):
     limit = min(limit, 10)
     # fx_uid = event["pathParameters"]["uid"]
     try:
-        fxa_validate(event)
+        if "recv" not in fxa_validate(event, device_id):
+            raise HandlerException(
+                status_code=401,
+                message="Operation not permitted"
+            )
     except HandlerException as ex:
         return dict(
             headers={"Content-Type": "application/json"},
