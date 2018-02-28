@@ -1,6 +1,6 @@
-service: sendtab
+service: pushbox
 
-frameworkVersion: "=1.26.0"
+frameworkVersion: "=1.26.1"
 
 provider:
   name: aws
@@ -29,7 +29,7 @@ functions:
     role: storeDataRole
     events:
       - http:
-          path: v1/store/{uid}/{deviceId}/sendtab
+          path: v1/store/{uid}/{deviceId}
           method: post
           cors: true
           # authorizer: fxaAuthorizer
@@ -38,7 +38,7 @@ functions:
     role: getDataRole
     events:
       - http:
-          path: v1/store/{uid}/{deviceId}/sendtab
+          path: v1/store/{uid}/{deviceId}
           method: get
           cors: true
           request:
@@ -47,9 +47,6 @@ functions:
                 index: false
                 max_size: false
                 count: false
-          # authorizer: fxaAuthorizer
-  # fxaAuthorizer:
-    # handler: ...
 
 resources:
   Resources:
@@ -169,3 +166,10 @@ resources:
                     Fn::GetAtt:
                       - indexTable
                       - Arn
+  #custom:
+  #  customDomain:
+  #      domainName: 'pushbox.dev.mozaws.net'
+  #      certificateName: '*.dev.mozaws.net'
+  #      basePath: ''
+  #      stage: ${self:provider.stage}
+  #      createRoute53Record: true
