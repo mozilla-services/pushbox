@@ -1,0 +1,175 @@
+service: pushbox
+
+frameworkVersion: "=1.26.1"
+
+provider:
+  name: aws
+  stage: ${opt:stage, 'dev'}
+  runtime: python3.6
+  memorySize: 128
+  environment:
+    S3_BUCKET:
+      Ref: dataBucket
+    DDB_TABLE:
+      Ref: indexTable
+
+plugins:
+  - serverless-python-requirements
+  - serverless-offline
+package:
+  exclude:
+    - .gitignore
+    - .idea
+    - node_modules
+    - scripts
+
+functions:
+  store_data:
+    handler: handler.store_data
+    role: storeDataRole
+    events:
+      - http:
+          path: v1/store/{uid}/{deviceId}
+          method: post
+          cors: true
+          # authorizer: fxaAuthorizer
+  get_data:
+    handler: handler.get_data
+    role: getDataRole
+    events:
+      - http:
+          path: v1/store/{uid}/{deviceId}
+          method: get
+          cors: true
+          request:
+            parameters:
+              querystrings:
+                index: false
+                max_size: false
+                count: false
+
+resources:
+  Resources:
+    # Our base serverless policy
+    serverlessPolicy:
+      Type: AWS::IAM::Policy
+      Properties:
+        Roles:
+          - Ref: storeDataRole
+          - Ref: getDataRole
+        PolicyName: serverlessPolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource:
+                - 'Fn::Join':
+                  - ':'
+                  -
+                    - 'arn:aws:logs'
+                    - Ref: 'AWS::Region'
+                    - Ref: 'AWS::AccountId'
+                    - 'log-group:/aws/lambda/*:*:*'
+            -  Effect: "Allow"
+               Action:
+                 - "s3:PutObject"
+               Resource:
+                 Fn::Join:
+                   - ""
+                   - - "arn:aws:s3:::"
+                     - "Ref" : "ServerlessDeploymentBucket"
+
+    indexTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: indexTable
+        AttributeDefinitions:
+          - AttributeName: fxa_uid
+            AttributeType: S
+          - AttributeName: index
+            AttributeType: N
+        KeySchema:
+          - AttributeName: fxa_uid
+            KeyType: HASH
+          - AttributeName: index
+            KeyType: RANGE
+        ProvisionedThroughput:
+          ReadCapacityUnits: 5
+          WriteCapacityUnits: 5
+        TimeToLiveSpecification:
+          AttributeName: ttl
+          Enabled: true
+
+    dataBucket:
+      Type: AWS::S3::Bucket
+
+    storeDataRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - lambda.amazonaws.com
+              Action: sts:AssumeRole
+        Policies:
+          - PolicyName: storeDataPolicy
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: "Allow"
+                  Action:
+                    - "s3:PutObject"
+                    - "s3:PutObjectAcl"
+                  Resource:
+                    - Fn::Join: ['', ['arn:aws:s3:::', Ref: "dataBucket", "/*"]]
+                - Effect: "Allow"
+                  Action:
+                    - "dynamodb:PutItem"
+                  Resource:
+                    Fn::GetAtt:
+                      - indexTable
+                      - Arn
+
+    getDataRole:
+      Type: AWS::IAM::Role
+      Properties:
+        AssumeRolePolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - lambda.amazonaws.com
+              Action: sts:AssumeRole
+        Policies:
+          - PolicyName: getDataPolicy
+            PolicyDocument:
+              Version: '2012-10-17'
+              Statement:
+                - Effect: "Allow"
+                  Action:
+                    - "s3:GetObject"
+                  Resource:
+                    - Fn::Join: ['', ['arn:aws:s3:::', Ref: "dataBucket", "/*"]]
+                - Effect: "Allow"
+                  Action:
+                    - "dynamodb:GetItem"
+                    - "dynamodb:Query"
+                  Resource:
+                    Fn::GetAtt:
+                      - indexTable
+                      - Arn
+  #custom:
+  #  customDomain:
+  #      domainName: 'pushbox.dev.mozaws.net'
+  #      certificateName: '*.dev.mozaws.net'
+  #      basePath: ''
+  #      stage: ${self:provider.stage}
+  #      createRoute53Record: true

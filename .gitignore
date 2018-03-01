@@ -1,2 +1,10 @@
 .idea
+# npm directories
 node_modules/
+# virtualenv directories
+bin/
+bin
+include/
+lib/
+local/
+share/

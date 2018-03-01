@@ -1,0 +1,27 @@
+{
+  "name": "sendtab-service",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "dependencies": {
+    "serverless": "^1.25.0",
+    "serverless-python-requirements": "^3.0.10"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "author": "",
+  "license": "MPL-2.0",
+  "bugs": {
+    "url": ""
+  },
+  "homepage": "",
+  "devDependencies": {
+    "serverless-domain-manager": "^2.3.3",
+    "serverless-offline": "^3.16.0"
+  }
+}
