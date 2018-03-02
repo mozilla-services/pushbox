@@ -12,6 +12,9 @@ provider:
       Ref: dataBucket
     DDB_TABLE:
       Ref: indexTable
+    # A comma separated list of allowed services
+    SERVICES:
+      Ref: sendtab
 
 plugins:
   - serverless-python-requirements
@@ -29,7 +32,7 @@ functions:
     role: storeDataRole
     events:
       - http:
-          path: v1/store/{uid}/{deviceId}
+          path: v1/store/{service}/{uid}/{deviceId}
           method: post
           cors: true
           # authorizer: fxaAuthorizer
@@ -38,7 +41,7 @@ functions:
     role: getDataRole
     events:
       - http:
-          path: v1/store/{uid}/{deviceId}
+          path: v1/store/{service}/{uid}/{deviceId}
           method: get
           cors: true
           request:
@@ -47,6 +50,14 @@ functions:
                 index: false
                 max_size: false
                 count: false
+  del_user_device_data:
+    handler: handler.del_data
+    role: storeDataRole
+    events:
+      - http:
+        path: v1/store/{service}/{uid}/{deviceId}
+        method: delete
+        cors: true
 
 resources:
   Resources:
