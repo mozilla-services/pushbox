@@ -16,6 +16,8 @@ logger.setLevel(logging.INFO)
 
 # Constants
 DEFAULT_TTL = 60 * 60 * 24
+SERVICES = [x.strip().lower()
+            for x in os.environ.get("SERVICES", "sendtab").split(",")]
 
 # Environment Constants
 S3_BUCKET = os.environ.get("S3_BUCKET", "pushbox-test")
@@ -50,8 +52,17 @@ def log_exceptions(f):
     return wrapper
 
 
-def compose_key(uid, devid):
-    return "{}_{}".format(uid, devid)
+def valid_service(service):
+    if service not in SERVICES:
+        raise HandlerException(
+           status_code=404,
+           message="Unknown service"
+        )
+    return service
+
+
+def compose_key(uid, device_id, service):
+    return "{}:{}:{}".format(service, uid, device_id)
 
 
 def fxa_validate(event, device_id=None):
@@ -121,13 +132,14 @@ def store_data(event, context):
     logger.info("Event was set to: {}".format(event))
     device_id = event["pathParameters"]["deviceId"]
     fx_uid = event["pathParameters"]["uid"]
-    key = compose_key(fx_uid, device_id)
     try:
+        service = valid_service(event["pathParameters"]["service"])
         if "send" not in fxa_validate(event, device_id):
             raise HandlerException(
                 status_code=401,
                 message="Operation not permitted"
             )
+        key = compose_key(uid=fx_uid, device_id=device_id, service=service)
     except HandlerException as ex:
         return dict(
             headers={"Content-Type": "application/json"},
@@ -170,6 +182,8 @@ def store_data(event, context):
                 Item=dict(
                     fxa_uid=key,
                     index=index,
+                    device_id=device_id,
+                    service=service,
                     ttl=int(time.time()) + ttl,
                     s3_filename=s3_filename,
                     s3_file_size=len(s3_data)
@@ -196,19 +210,18 @@ def get_data(event, context):
     logger.info("Event was set to: {}".format(event))
     device_id = event["pathParameters"]["deviceId"]
     fx_uid = event["pathParameters"]["uid"]
-    key = compose_key(fx_uid, device_id)
-    # get the channelid ('sendTab'?)
-    channelid = "sendtab"
     limit = event["pathParameters"].get("limit")
     if not limit:
         limit = 10
     limit = min(limit, 10)
     try:
+        service = valid_service(event["pathParameters"]["service"])
         if "recv" not in fxa_validate(event, device_id):
             raise HandlerException(
                 status_code=401,
                 message="Operation not permitted"
             )
+        key = compose_key(uid=fx_uid, device_id=device_id, service=service)
     except HandlerException as ex:
         return dict(
             headers={"Content-Type": "application/json"},
@@ -219,8 +232,7 @@ def get_data(event, context):
             ))
         )
     start_index = None
-    if (event["queryStringParameters"] and
-            "index" in event["queryStringParameters"]):
+    if "index" in event.get("queryStringParameters"):
         start_index = int(event["queryStringParameters"]["index"])
         logger.info("Start index: {}".format(start_index))
     key_cond = Key("fxa_uid").eq(key)
@@ -234,13 +246,17 @@ def get_data(event, context):
     ).get("Items", [])
     # Fetch all the payloads
     for item in results:
-        response = s3.Object(S3_BUCKET, item["s3_filename"]).get()
-        data = response["Body"].read().decode('utf-8')
-        item["data"] = data
-        item["channel"] = channelid
-        if 'index' not in item and item.get("timestamp"):
-            item["index"] = item["timestamp"]
-            del(item["timestamp"])
+        try:
+            response = s3.Object(S3_BUCKET, item["s3_filename"]).get()
+            data = response["Body"].read().decode('utf-8')
+            item["data"] = data
+            item["service"] = service
+        except ClientError as ex:
+            return dict(
+                headers={"Content-Type": "application/json"},
+                status=404,
+                body="Content missing or expired"
+            )
     # Serialize the results for delivery
     index = 0
     messages = []
@@ -260,6 +276,47 @@ def get_data(event, context):
         status=200,
         body=json.dumps(payload),
     )
+
+
+@log_exceptions
+def del_data(event, context=None):
+    """Delete data for a given user/device/channel"""
+    uid = event['pathParameters']["uid"]
+    device_id = event['pathParameters']['deviceId']
+    try:
+        service = valid_service(event["pathParameters"]["service"])
+        if "send" not in fxa_validate(event, device_id):
+            raise HandlerException(
+                status_code=401,
+                message="Operation not permitted"
+            )
+        key = compose_key(uid=uid, device_id=device_id, service=service)
+    except HandlerException as ex:
+            return dict(
+                headers={"Content-Type": "application/json"},
+                statusCode=ex.status_code,
+                body=json.dumps(dict(
+                    status=ex.status_code,
+                    error="{}".format(ex),
+                ))
+            )
+    items = index_table.query(
+        Select="ALL_ATTRIBUTES",
+        KeyConditionExpression=Key("fxa_uid").eq(key),
+        ConsistentRead=True,
+    ).get("Items", [])
+    try:
+        for item in items:
+            s3.Object(S3_BUCKET, item["s3_filename"]).delete()
+    except Exception as ex:
+        return dict(
+                headers={"Content-Type": "application/json"},
+                statusCode=500,
+                body=json.dumps(dict(
+                    status=500,
+                    error="Could not delete all data {}".format(ex),
+                ))
+            )
 
 
 def test_fxa_validate():
@@ -304,7 +361,8 @@ def test_index_storage(headers):
     store_result = store_data({
         "pathParameters": {
             "deviceId": "device-123",
-            "uid": "uid-123"
+            "uid": "uid-123",
+            "service": "sendtab"
         },
         "headers": headers,
         "body": json.dumps({
@@ -314,7 +372,8 @@ def test_index_storage(headers):
     fetch_result = get_data({
         "pathParameters": {
             "deviceId": "device-123",
-            "uid": "uid-123"
+            "uid": "uid-123",
+            "service": "sendtab"
         },
         "headers": headers,
         "queryStringParameters": {
@@ -328,8 +387,22 @@ def test_index_storage(headers):
     print('Ok')
 
 
+def test_delete_storge(headers):
+    del_data({
+        "pathParameters": {
+            "deviceId": "device-123",
+            "uid": "uid-123",
+            "service": "sendtab"
+        },
+        "headers": headers,
+    })
+    print("Ok")
+
+
 if __name__ == "__main__":
     print("testing FxA validation...")
     headers = test_fxa_validate()
     print("testing indexed data storage...")
     test_index_storage(headers)
+    print("testing delete...")
+    test_delete_storge(headers)
