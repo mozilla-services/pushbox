@@ -1,4 +1,5 @@
 .idea
+.serverless
 # npm directories
 node_modules/
 # virtualenv directories
