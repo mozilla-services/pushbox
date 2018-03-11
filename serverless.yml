@@ -13,18 +13,24 @@ provider:
     DDB_TABLE:
       Ref: indexTable
     # A comma separated list of allowed services
-    SERVICES:
-      Ref: sendtab
+    SERVICES: "sendtab"
 
 plugins:
   - serverless-python-requirements
   - serverless-offline
+#  - serverless-domain-manager
 package:
   exclude:
     - .gitignore
-    - .idea
-    - node_modules
-    - scripts
+    - .idea/**
+    - .git/**
+    - lib/.git/**
+    - local/lib/python2.7/**
+    - local/node_modules/**
+    - .serverless
+    - node_modules/**
+    - scripts/**
+    - local/include/**
 
 functions:
   store_data:
@@ -32,15 +38,22 @@ functions:
     role: storeDataRole
     events:
       - http:
+          authorizer:
+            name: fxaWriteAuthorizer
+            identitySource: method.request.header.Authorization
+            type: token
           path: v1/store/{service}/{uid}/{deviceId}
           method: post
           cors: true
-          # authorizer: fxaAuthorizer
   get_data:
     handler: handler.get_data
     role: getDataRole
     events:
       - http:
+          authorizer:
+            name: fxaReadAuthorizer
+            identitySource: method.request.header.Authorization
+            type: token
           path: v1/store/{service}/{uid}/{deviceId}
           method: get
           cors: true
@@ -55,9 +68,25 @@ functions:
     role: storeDataRole
     events:
       - http:
-        path: v1/store/{service}/{uid}/{deviceId}
-        method: delete
-        cors: true
+          authorizer:
+            name: fxaWriteAuthorizer
+            identitySource: method.request.header.Authorization
+            type: token
+          path: v1/store/{service}/{uid}/{deviceId}
+          method: delete
+          cors: true
+  fxaReadAuthorizer:
+    handler: fxa_auth.fxa_validate_read
+  fxaWriteAuthorizer:
+    handler: fxa_auth.fxa_validate_write
+  health:
+    handler: handler.status
+    role: getDataRole
+    events:
+      - http:
+          path: v1/status
+          method: get
+          cors: true
 
 resources:
   Resources:
@@ -85,14 +114,46 @@ resources:
                     - Ref: 'AWS::Region'
                     - Ref: 'AWS::AccountId'
                     - 'log-group:/aws/lambda/*:*:*'
-            -  Effect: "Allow"
-               Action:
+            - Effect: "Allow"
+              Action:
                  - "s3:PutObject"
-               Resource:
+              Resource:
                  Fn::Join:
                    - ""
                    - - "arn:aws:s3:::"
                      - "Ref" : "ServerlessDeploymentBucket"
+# Required for domain-manager
+#            - Effect: Allow
+#              Action:
+#                - apigateway:POST
+#              Resource: "/domainnames"
+#            - Effect: Allow
+#              Action:
+#                - apigateway:GET
+#                - apigateway:DELETE
+#              Resource: "/domainnames/*"
+#            - Effect: Allow
+#              Action:
+#                - apigateway:POST
+#              Resource: "/domainnames/*/basepathmappings"
+#            - Effect: Allow
+#              Action:
+#                - route53:ListHostedZones
+#              Resource: "*"
+#            - Effect: Allow
+#              Action:
+#                - acm:ListCertificates
+#              Resource: "*"
+#            - Effect: Allow
+#              Action:
+#                - cloudfront:UpdateDistribution
+#              Resource: "*"
+#            - Effect: Allow
+#              Action:
+#                - route53:ChangeResourceRecordSets
+#                - route53:GetHostedZone
+#                - route53:ListResourceRecordSets
+#              Resource: "arn:aws:route53::hostedzone/Z3GEB01DYXZM0A"
 
     indexTable:
       Type: AWS::DynamoDB::Table
@@ -138,11 +199,14 @@ resources:
                   Action:
                     - "s3:PutObject"
                     - "s3:PutObjectAcl"
+                    - "s3:DeleteObject"
                   Resource:
                     - Fn::Join: ['', ['arn:aws:s3:::', Ref: "dataBucket", "/*"]]
                 - Effect: "Allow"
                   Action:
+                    - "dynamodb:GetItem"
                     - "dynamodb:PutItem"
+                    - "dynamodb:Query"
                   Resource:
                     Fn::GetAtt:
                       - indexTable
@@ -177,10 +241,12 @@ resources:
                     Fn::GetAtt:
                       - indexTable
                       - Arn
-  #custom:
-  #  customDomain:
-  #      domainName: 'pushbox.dev.mozaws.net'
-  #      certificateName: '*.dev.mozaws.net'
-  #      basePath: ''
-  #      stage: ${self:provider.stage}
-  #      createRoute53Record: true
+# Required for domain-manager
+#custom:
+#  customDomain:
+#      domainName: "pushbox.dev.mozaws.net"
+#      # See note in DEPLOY.md about possible bug here.
+#      certificateName: "*.dev.mozaws.net"
+#      basePath: ""
+#      stage: ${self:provider.stage}
+#      createRoute53Record: true

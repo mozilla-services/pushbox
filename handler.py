@@ -3,7 +3,6 @@ import logging
 import os
 import time
 import uuid
-from urllib import request, error
 from functools import wraps
 
 import boto3
@@ -65,81 +64,14 @@ def compose_key(uid, device_id, service):
     return "{}:{}:{}".format(service, uid, device_id)
 
 
-def fxa_validate(event, device_id=None):
-    """Return list of actions that this request is authorized to perform.
-
-    Raise a HandlerException on error.
-
-    """
-    # extract the FxA OAuth token from the Authorization header
-    try:
-        assert event["headers"]["authorization"].lower().startswith("bearer")
-        auth = event["headers"]["authorization"].strip().split(None, 1)[1]
-
-    except KeyError:
-        raise HandlerException(
-            status_code=401,
-            message="Missing authorization header")
-    except IndexError:
-        raise HandlerException(
-            status_code=401,
-            message="Invalid authorization header"
-        )
-    try:
-        req = request.Request(
-            "https://{}/v1/verify".format(FXA_HOST),
-            method="POST",
-            data=json.dumps({"token": auth}).encode('utf8'),
-            headers={"Content-type": "application/json"})
-        response = request.urlopen(req, timeout=5).read()
-        scopes = set(json.loads(response)["scope"])
-        actions = {}
-        if "https://identity.mozilla.com/apps/pushbox/" in scopes:
-            return ['send', 'recv']
-        if "https://identity.mozilla.com/apps/pushbox/send" in scopes:
-            actions['send'] = True
-        if "https://identity.mozilla.com/apps/pushbox/recv" in scopes:
-            actions["recv"] = True
-        if ("https://identity.mozilla.com/apps/pushbox/send/{}".format(
-                device_id) in scopes):
-            actions["send"] = True
-        if ("https://identity.mozilla.com/apps/pushbox/recv/{}".format(
-                device_id) in scopes):
-            actions["recv"] = True
-        else:
-            raise HandlerException(
-                status_code=502,
-                message="Unknown or invalid token response received"
-            )
-        return actions.keys()
-    except KeyError:
-        raise HandlerException(
-            status_code=500,
-            message="Token not found in authorization response")
-    except error.URLError as ex:
-        raise HandlerException(
-            status_code=502,
-            message="Could not verify auth {}".format(ex))
-    except ValueError as ex:
-        raise HandlerException(
-            status_code=502,
-            message="Could not parse auth response {}".format(ex))
-
-
 @log_exceptions
 def store_data(event, context):
     """Store data in S3 and index it in DynamoDB"""
-    logger.info("Event was set to: {}".format(event))
+    logger.info("Event: {} ; Context: {}".format(event, context))
     device_id = event["pathParameters"]["deviceId"]
     fx_uid = event["pathParameters"]["uid"]
     try:
         service = valid_service(event["pathParameters"]["service"])
-        if "send" not in fxa_validate(event, device_id):
-            raise HandlerException(
-                status_code=401,
-                message="Operation not permitted"
-            )
-        key = compose_key(uid=fx_uid, device_id=device_id, service=service)
     except HandlerException as ex:
         return dict(
             headers={"Content-Type": "application/json"},
@@ -150,20 +82,21 @@ def store_data(event, context):
             ))
         )
     try:
+        key = compose_key(uid=fx_uid, device_id=device_id, service=service)
         req_json = json.loads(event["body"])
-    except ValueError:
+        logger.info("data: {}".format(req_json))
+    except ValueError as ex:
         return dict(
             headers={"Content-Type": "application/json"},
             statusCode=400,
             body=json.dumps(dict(
-                status=200,
-                error="Invalid payload"
+                status=400,
+                error="Invalid payload: {}".format(ex)
             ))
         )
-    s3_data = req_json["data"].encode("utf-8")
     ttl = req_json.get("ttl", DEFAULT_TTL)
     s3_filename = device_id + uuid.uuid4().hex
-    s3.Object(S3_BUCKET, s3_filename).put(Body=s3_data)
+    s3.Object(S3_BUCKET, s3_filename).put(Body=req_json["data"])
     result = index_table.query(
         KeyConditionExpression=Key("fxa_uid").eq(key),
         Select="ALL_ATTRIBUTES",
@@ -174,6 +107,7 @@ def store_data(event, context):
         index = int(result['Items'][0].get('index'))+1
     else:
         index = 1
+    data_len = len(req_json["data"])
     for i in range(0, 10):
         try:
             index = index + i
@@ -186,7 +120,7 @@ def store_data(event, context):
                     service=service,
                     ttl=int(time.time()) + ttl,
                     s3_filename=s3_filename,
-                    s3_file_size=len(s3_data)
+                    s3_file_size=data_len
                 )
             )
             break
@@ -216,12 +150,6 @@ def get_data(event, context):
     limit = min(limit, 10)
     try:
         service = valid_service(event["pathParameters"]["service"])
-        if "recv" not in fxa_validate(event, device_id):
-            raise HandlerException(
-                status_code=401,
-                message="Operation not permitted"
-            )
-        key = compose_key(uid=fx_uid, device_id=device_id, service=service)
     except HandlerException as ex:
         return dict(
             headers={"Content-Type": "application/json"},
@@ -231,8 +159,10 @@ def get_data(event, context):
                 error="{}".format(ex),
             ))
         )
+    key = compose_key(uid=fx_uid, device_id=device_id, service=service)
     start_index = None
-    if "index" in event.get("queryStringParameters"):
+    # "queryStringParameters" could be set to None
+    if "index" in (event.get("queryStringParameters") or {}):
         start_index = int(event["queryStringParameters"]["index"])
         logger.info("Start index: {}".format(start_index))
     key_cond = Key("fxa_uid").eq(key)
@@ -244,6 +174,7 @@ def get_data(event, context):
         ConsistentRead=True,
         Limit=limit,
     ).get("Items", [])
+    logger.info("results: {}".format(results))
     # Fetch all the payloads
     for item in results:
         try:
@@ -252,9 +183,10 @@ def get_data(event, context):
             item["data"] = data
             item["service"] = service
         except ClientError as ex:
+            logger.error(ex)
             return dict(
                 headers={"Content-Type": "application/json"},
-                status=404,
+                statusCode=404,
                 body="Content missing or expired"
             )
     # Serialize the results for delivery
@@ -273,7 +205,7 @@ def get_data(event, context):
         payload["messages"] = messages
     return dict(
         headers={"Content-Type": "application/json"},
-        status=200,
+        statusCode=200,
         body=json.dumps(payload),
     )
 
@@ -285,12 +217,6 @@ def del_data(event, context=None):
     device_id = event['pathParameters']['deviceId']
     try:
         service = valid_service(event["pathParameters"]["service"])
-        if "send" not in fxa_validate(event, device_id):
-            raise HandlerException(
-                status_code=401,
-                message="Operation not permitted"
-            )
-        key = compose_key(uid=uid, device_id=device_id, service=service)
     except HandlerException as ex:
             return dict(
                 headers={"Content-Type": "application/json"},
@@ -300,6 +226,7 @@ def del_data(event, context=None):
                     error="{}".format(ex),
                 ))
             )
+    key = compose_key(uid=uid, device_id=device_id, service=service)
     items = index_table.query(
         Select="ALL_ATTRIBUTES",
         KeyConditionExpression=Key("fxa_uid").eq(key),
@@ -317,47 +244,25 @@ def del_data(event, context=None):
                     error="Could not delete all data {}".format(ex),
                 ))
             )
+    return dict(
+        headers={"Content-Type": "application/json"},
+        statusCode=200,
+        body="{}"
+    )
 
 
-def test_fxa_validate():
-    """Test the FxA validation routines.
-
-    This requires the PyFxA 0.5.0 module.
-
-    """
-    from fxa.tools.create_user import create_new_fxa_account
-    from fxa.tools.bearer import get_bearer_token
-    from fxa.constants import ENVIRONMENT_URLS
-
-    try:
-        email, password = create_new_fxa_account(
-            fxa_user_salt=None,
-            account_server_url=ENVIRONMENT_URLS['stage']['authentication'],
-            prefix='fxa',
-            content_server_url=ENVIRONMENT_URLS['stage']['content'],
-        )
-        bearer = get_bearer_token(
-            email=email,
-            password=password,
-            scopes=["https://identity.mozilla.com/apps/pushbox/"],
-            account_server_url=ENVIRONMENT_URLS['stage']['authentication'],
-            oauth_server_url=ENVIRONMENT_URLS['stage']['oauth'],
-            client_id="5882386c6d801776",
-        )
-        headers = {
-            "authorization": "Bearer {}".format(bearer)
-        }
-        result = fxa_validate({"headers": headers}, None)
-        assert(result == ['send', 'recv'])
-        print("Ok")
-        return headers
-    except Exception as ex:
-        print("Fail: {}".format(ex))
-    pass
+@log_exceptions
+def status(event, context=None):
+    # Faux status to discover root.
+    return dict(
+        headers={"Content-Type": "application/json"},
+        statusCode=200,
+        body=json.dumps(dict(status=200, message="ok"))
+    )
 
 
 def test_index_storage(headers):
-    data = "Some Data"
+    data = {"foo": "bar"}
     store_result = store_data({
         "pathParameters": {
             "deviceId": "device-123",
@@ -383,7 +288,7 @@ def test_index_storage(headers):
     body = json.loads(fetch_result['body'])
     assert(body['last'])
     assert(body['index'] == json.loads(store_result['body'])['index'])
-    assert(body['messages'][0]['data'] == data)
+    assert(body['messages'][0]['data'] == json.dumps(data))
     print('Ok')
 
 
@@ -400,9 +305,7 @@ def test_delete_storge(headers):
 
 
 if __name__ == "__main__":
-    print("testing FxA validation...")
-    headers = test_fxa_validate()
     print("testing indexed data storage...")
-    test_index_storage(headers)
+    test_index_storage({"keys": "[\"send\", \"recv\"]"})
     print("testing delete...")
-    test_delete_storge(headers)
+    test_delete_storge({"keys": "[\"send\", \"recv\"]"})
