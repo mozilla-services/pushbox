@@ -23,3 +23,44 @@ $ npm install serverless
 $ npm install serverless-python-requirements
 $ npm install serverless-domain-manager --save-dev
 ```
+
+# Deploying
+## packaging
+Images must stay less than about 200K. You should aggressively exclude
+anything that is not absolutely necessary. Only directories and explicit
+full file paths can be excluded.
+
+## domain-manager
+
+Unfortunately, there are a number of bugs with domain-manager.
+
+1) It will look for the first certificate for a given domain match,
+ths may result in it pulling an expired (or soon to be expired) cert from
+the certificate manager. Apparently, you can't specify an ARN for a valid
+certificate.
+2) The cert MUST be in the region that you're deploying to.
+
+## Deploy command
+`sls deploy [-s stage] [--fxa fxa_auth_server]`
+
+`-s` optionally changes the **stage** from `dev`
+
+`--fxa` optionally changes the **fxa_auth_server_host** from `oauth_stage_mozaws.net`
+
+
+## Post deploy steps
+You can specify the `stage` you want to deploy using the `-s` command line argument. If you
+do not specify, the default value for `stage` is `dev`.
+
+* Go to the [Amazon API Gateway:Custom Domain Names](https://console.aws.amazon.com/apigateway/home?region=us-east-1#/custom-domain-names) section
+* Create a Custom Domain Name
+* Set the *Domain Name* to match your desired host name (e.g. `pushbox.dev.mozaws.net`) You may
+want to [verify the cert identifier from ACM](https://console.aws.amazon.com/acm/home)
+* Set the **Base Path Mappings**
+    * Leave **Path** empty
+    * Set **Destination** to match your new API instance which is `$stage-pushbox(...)`.
+    * Set the Stage to match your deployed stage
+
+* Click ***Save***
+
+It may take up to 40 minutes before the domain is available.
