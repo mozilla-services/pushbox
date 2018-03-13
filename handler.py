@@ -54,8 +54,8 @@ def log_exceptions(f):
 def valid_service(service):
     if service not in SERVICES:
         raise HandlerException(
-           status_code=404,
-           message="Unknown service"
+            status_code=404,
+            message="Unknown service"
         )
     return service
 
@@ -96,7 +96,9 @@ def store_data(event, context):
         )
     ttl = req_json.get("ttl", DEFAULT_TTL)
     s3_filename = device_id + uuid.uuid4().hex
-    s3.Object(S3_BUCKET, s3_filename).put(Body=req_json["data"])
+    # "data" is coming from a JSON object, and could be a dict, which will
+    # need to be serialized.
+    s3.Object(S3_BUCKET, s3_filename).put(Body=json.dumps(req_json["data"]))
     result = index_table.query(
         KeyConditionExpression=Key("fxa_uid").eq(key),
         Select="ALL_ATTRIBUTES",
@@ -167,7 +169,7 @@ def get_data(event, context):
         logger.info("Start index: {}".format(start_index))
     key_cond = Key("fxa_uid").eq(key)
     if start_index:
-        key_cond = key_cond & Key("index").gte(start_index)
+        key_cond = key_cond & Key("index").gt(start_index)
     results = index_table.query(
         Select="ALL_ATTRIBUTES",
         KeyConditionExpression=key_cond,
@@ -237,13 +239,13 @@ def del_data(event, context=None):
             s3.Object(S3_BUCKET, item["s3_filename"]).delete()
     except Exception as ex:
         return dict(
-                headers={"Content-Type": "application/json"},
-                statusCode=500,
-                body=json.dumps(dict(
-                    status=500,
-                    error="Could not delete all data {}".format(ex),
-                ))
-            )
+            headers={"Content-Type": "application/json"},
+            statusCode=500,
+            body=json.dumps(dict(
+                status=500,
+                error="Could not delete all data {}".format(ex),
+            ))
+        )
     return dict(
         headers={"Content-Type": "application/json"},
         statusCode=200,
@@ -257,7 +259,7 @@ def status(event, context=None):
     return dict(
         headers={"Content-Type": "application/json"},
         statusCode=200,
-        body=json.dumps(dict(status=200, message="ok"))
+        body=json.dumps(dict(status=200, message="ok", server=FXA_HOST))
     )
 
 
@@ -282,7 +284,7 @@ def test_index_storage(headers):
         },
         "headers": headers,
         "queryStringParameters": {
-            "index": json.loads(store_result['body'])['index']
+            "index": json.loads(store_result['body'])['index'] - 1
         },
     }, None)
     body = json.loads(fetch_result['body'])

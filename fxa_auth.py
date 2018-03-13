@@ -68,7 +68,12 @@ def validate(event, method):
         except error.HTTPError as ex:
             raise HandlerException(
                 status_code=ex.code,
-                message = "{} {}".format(ex.msg, ex.fp.read()))
+                message="{} {}".format(ex.msg, ex.fp.read()))
+        except Exception as ex:
+            raise HandlerException(
+                status_code=500,
+                message="Exception: {}".format(ex)
+            )
         scopes = set(json.loads(response)["scope"])
         actions = {}
         if "https://identity.mozilla.com/apps/pushbox/" in scopes:
@@ -83,11 +88,6 @@ def validate(event, method):
         if ("https://identity.mozilla.com/apps/pushbox/recv/{}".format(
                 device_id) in scopes):
             actions["recv"] = True
-        else:
-            raise HandlerException(
-                status_code=502,
-                message="Unknown or invalid token response received"
-            )
         if method.upper() in ["GET", "OPTIONS"] and "recv" not in actions:
             raise HandlerException(
                 status_code=401,
@@ -135,8 +135,6 @@ def generate_policy(event, effect, resource, keys):
                     Resource=resource_arn)
                 ],
         )
-    # because AWS is Awesome and you can only use numbers, bool, and strings
-    auth_response['context'] = {"keys": json.dumps(keys)}
     return auth_response
 
 
@@ -176,20 +174,23 @@ def test_fxa_validate():
     from fxa.tools.bearer import get_bearer_token
     from fxa.constants import ENVIRONMENT_URLS
 
-    email, password = create_new_fxa_account(
-        fxa_user_salt=None,
-        account_server_url=ENVIRONMENT_URLS['stage']['authentication'],
-        prefix='fxa',
-        content_server_url=ENVIRONMENT_URLS['stage']['content'],
-    )
-    token = get_bearer_token(
-        email=email,
-        password=password,
-        scopes=["https://identity.mozilla.com/apps/pushbox/"],
-        account_server_url=ENVIRONMENT_URLS['stage']['authentication'],
-        oauth_server_url=ENVIRONMENT_URLS['stage']['oauth'],
-        client_id="5882386c6d801776",
-    )
+    token = os.environ("FXA_TOKEN")
+    if not token:
+        email, password = create_new_fxa_account(
+            fxa_user_salt=None,
+            account_server_url=ENVIRONMENT_URLS['stage']['authentication'],
+            prefix='fxa',
+            content_server_url=ENVIRONMENT_URLS['stage']['content'],
+        )
+        token = get_bearer_token(
+            email=email,
+            password=password,
+            scopes=["https://identity.mozilla.com/apps/pushbox/"],
+            account_server_url=ENVIRONMENT_URLS['stage']['authentication'],
+            oauth_server_url=ENVIRONMENT_URLS['stage']['oauth'],
+            client_id="5882386c6d801776",
+        )
+    print("Token: Bearer {}".format(token))
     result = fxa_validate_write(
         {"type": 'TOKEN',
          "methodArn": ("arn:aws:execute-api:us-east-1:927034868273:3ksq"
