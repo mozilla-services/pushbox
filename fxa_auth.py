@@ -31,10 +31,11 @@ def log_exceptions(f):
 
 
 @log_exceptions
-def validate(event, method):
-    logger.info("Auth was set to: {} | {}".format(method, event))
-    device_id = event.get("pathParameters", {}).get("deviceId", "test")
-    fx_uid = event.get("pathParameters", {}).get("uid")
+def validate(event, func):
+    logger.info("Auth was set to: {} | {}".format(func, event))
+    # Parse the ARN.
+    (service, user_id, device_id) = event['methodArn'].split(
+        ":")[-1].split("/")[5:]
     if not device_id:
         raise HandlerException(
             status_code=500,
@@ -77,28 +78,18 @@ def validate(event, method):
         scopes = set(json.loads(response)["scope"])
         actions = {}
         if "https://identity.mozilla.com/apps/pushbox/" in scopes:
-            return ['send', 'recv']
+            return ['write', 'read']
         if "https://identity.mozilla.com/apps/pushbox/send" in scopes:
-            actions['send'] = True
+            actions['write'] = True
         if "https://identity.mozilla.com/apps/pushbox/recv" in scopes:
-            actions["recv"] = True
+            actions["read"] = True
         if ("https://identity.mozilla.com/apps/pushbox/send/{}".format(
                 device_id) in scopes):
-            actions["send"] = True
+            actions["write"] = True
         if ("https://identity.mozilla.com/apps/pushbox/recv/{}".format(
                 device_id) in scopes):
-            actions["recv"] = True
-        if method.upper() in ["GET", "OPTIONS"] and "recv" not in actions:
-            raise HandlerException(
-                status_code=401,
-                message="Unauthorized"
-            )
-        if method.upper in ["POST", "DELETE"] and "send" not in actions:
-            raise HandlerException(
-                status_code=401,
-                message="Unauthorized"
-            )
-        return actions.keys()
+            actions["read"] = True
+        return func in actions
     except KeyError:
         raise HandlerException(
             status_code=500,
@@ -113,14 +104,21 @@ def validate(event, method):
             message="Could not parse auth response {}".format(ex))
 
 
-def generate_policy(event, effect, resource, keys):
+def generate_policy(event, effect, resource):
     arn_bits = event['methodArn'].split(':')
     region = arn_bits[3]
     account_id = arn_bits[4]
+    # Parse the ARN.
+    (api_id, stage, verb) = event['methodArn'].split(
+        ":")[-1].split("/")[:3]
     # Bless everything because argblargblargblarg
-    resource_arn = "arn:aws:execute-api:{}:{}:*/*/*/*".format(
+    # region:accountId:restApiId:stage:
+    resource_arn = "arn:aws:execute-api:{}:{}:{}/{}/{}/*".format(
         region,
         account_id,
+        api_id,
+        stage,
+        verb
         )
     auth_response = dict(
         principalId="user"
@@ -140,28 +138,30 @@ def generate_policy(event, effect, resource, keys):
 
 def fxa_validate_read(event, context):
     try:
-        keys = validate(event, "GET")
+        if not validate(event, "read"):
+            raise Exception("Unauthorized")
     except HandlerException as ex:
         if ex.status_code == 401:
             logging.error("Unauthorized")
-            return "Unauthorized"
+            raise Exception("Unauthorized")
         else:
             logging.error("Read Error: {}".format(ex))
-            return ex.message
-    return generate_policy(event, 'Allow', event.get("methodArn"), keys)
+            raise Exception("Server Error: {}".format(ex.message))
+    return generate_policy(event, 'Allow', event.get("methodArn"))
 
 
 def fxa_validate_write(event, context):
     try:
-        keys = validate(event, "POST")
+        if not validate(event, "write"):
+            raise Exception("Unauthorized")
     except HandlerException as ex:
         if ex.status_code == 401:
             logging.error("Unauthorized")
-            return "Unauthorized"
+            raise Exception("Unauthorized")
         else:
             logging.error("Write Error: {}".format(ex))
-            return ex.message
-    return generate_policy(event, 'Allow', event.get("methodArn"), keys)
+            raise Exception("Server Error: {}".format(ex.message))
+    return generate_policy(event, 'Allow', event.get("methodArn"))
 
 
 def test_fxa_validate():
@@ -174,7 +174,7 @@ def test_fxa_validate():
     from fxa.tools.bearer import get_bearer_token
     from fxa.constants import ENVIRONMENT_URLS
 
-    token = os.environ("FXA_TOKEN")
+    token = os.environ.get("FXA_TOKEN")
     if not token:
         email, password = create_new_fxa_account(
             fxa_user_salt=None,
@@ -191,7 +191,7 @@ def test_fxa_validate():
             client_id="5882386c6d801776",
         )
     print("Token: Bearer {}".format(token))
-    result = fxa_validate_write(
+    result = fxa_validate_read(
         {"type": 'TOKEN',
          "methodArn": ("arn:aws:execute-api:us-east-1:927034868273:3ksq"
                        "xftunj/dev/POST/v1/store/sendtab/e6bddbeae45048"
@@ -206,10 +206,10 @@ def test_fxa_validate():
             'Statement': [{
                 'Action': 'execute-api:Invoke',
                 'Effect': 'Allow',
-                'Resource': ('arn:aws:execute-api:us-east-1:'
-                             '927034868273:*/*/*/*')}]
-        },
-        'context': {'keys': '["send", "recv"]'}})
+                'Resource': ('arn:aws:execute-api:us-east-1:927034868273:'
+                             '3ksqxftunj/dev/POST/*')}]
+        }
+    })
     print("Ok")
     return token
 
