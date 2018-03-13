@@ -12,6 +12,7 @@ provider:
       Ref: dataBucket
     DDB_TABLE:
       Ref: indexTable
+    FXA_VERIFY_HOST: ${opt:fxa, 'oauth.stage.mozaws.net'}
     # A comma separated list of allowed services
     SERVICES: "sendtab"
 
@@ -75,10 +76,6 @@ functions:
           path: v1/store/{service}/{uid}/{deviceId}
           method: delete
           cors: true
-  fxaReadAuthorizer:
-    handler: fxa_auth.fxa_validate_read
-  fxaWriteAuthorizer:
-    handler: fxa_auth.fxa_validate_write
   health:
     handler: handler.status
     role: getDataRole
@@ -87,6 +84,10 @@ functions:
           path: v1/status
           method: get
           cors: true
+  fxaReadAuthorizer:
+    handler: fxa_auth.fxa_validate_read
+  fxaWriteAuthorizer:
+    handler: fxa_auth.fxa_validate_write
 
 resources:
   Resources:
@@ -158,7 +159,7 @@ resources:
     indexTable:
       Type: AWS::DynamoDB::Table
       Properties:
-        TableName: indexTable
+        TableName: indexTable_${opt:stage, 'dev'}
         AttributeDefinitions:
           - AttributeName: fxa_uid
             AttributeType: S

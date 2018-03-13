@@ -148,7 +148,7 @@ def fxa_validate_read(event, context):
             logging.error("Unauthorized")
             return "Unauthorized"
         else:
-            logging.error(ex)
+            logging.error("Read Error: {}".format(ex))
             return ex.message
     return generate_policy(event, 'Allow', event.get("methodArn"), keys)
 
@@ -161,7 +161,7 @@ def fxa_validate_write(event, context):
             logging.error("Unauthorized")
             return "Unauthorized"
         else:
-            logging.error(ex)
+            logging.error("Write Error: {}".format(ex))
             return ex.message
     return generate_policy(event, 'Allow', event.get("methodArn"), keys)
 
@@ -176,45 +176,41 @@ def test_fxa_validate():
     from fxa.tools.bearer import get_bearer_token
     from fxa.constants import ENVIRONMENT_URLS
 
-    try:
-        email, password = create_new_fxa_account(
-            fxa_user_salt=None,
-            account_server_url=ENVIRONMENT_URLS['stage']['authentication'],
-            prefix='fxa',
-            content_server_url=ENVIRONMENT_URLS['stage']['content'],
-        )
-        token = get_bearer_token(
-            email=email,
-            password=password,
-            scopes=["https://identity.mozilla.com/apps/pushbox/"],
-            account_server_url=ENVIRONMENT_URLS['stage']['authentication'],
-            oauth_server_url=ENVIRONMENT_URLS['stage']['oauth'],
-            client_id="5882386c6d801776",
-        )
-        result = fxa_validate_write(
-            {"type": 'TOKEN',
-             "methodArn": ("arn:aws:execute-api:us-east-1:927034868273:3ksq"
-                           "xftunj/dev/POST/v1/store/sendtab/e6bddbeae45048"
-                           "838e5a97eeba6633a7/11579fc58d0c5120329b5f7e0f7e"
-                           "7c3a"),
-             "authorizationToken": "Bearer {}".format(token)},
-            None)
-        assert(result == {
-            'principalId': 'user',
-            'policyDocument': {
-                'Version': '2012-10-17',
-                'Statement': [{
-                    'Action': 'execute-api:Invoke',
-                    'Effect': 'Allow',
-                    'Resource': ('arn:aws:execute-api:us-east-1:'
-                                 '927034868273:*/*/*/*')}]
-            },
-            'context': {'keys': '["send", "recv"]'}})
-        print("Ok")
-        return token
-    except Exception as ex:
-        print("Fail: {}".format(ex))
-    pass
+    email, password = create_new_fxa_account(
+        fxa_user_salt=None,
+        account_server_url=ENVIRONMENT_URLS['stage']['authentication'],
+        prefix='fxa',
+        content_server_url=ENVIRONMENT_URLS['stage']['content'],
+    )
+    token = get_bearer_token(
+        email=email,
+        password=password,
+        scopes=["https://identity.mozilla.com/apps/pushbox/"],
+        account_server_url=ENVIRONMENT_URLS['stage']['authentication'],
+        oauth_server_url=ENVIRONMENT_URLS['stage']['oauth'],
+        client_id="5882386c6d801776",
+    )
+    result = fxa_validate_write(
+        {"type": 'TOKEN',
+         "methodArn": ("arn:aws:execute-api:us-east-1:927034868273:3ksq"
+                       "xftunj/dev/POST/v1/store/sendtab/e6bddbeae45048"
+                       "838e5a97eeba6633a7/11579fc58d0c5120329b5f7e0f7e"
+                       "7c3a"),
+         "authorizationToken": "Bearer {}".format(token)},
+        None)
+    assert(result == {
+        'principalId': 'user',
+        'policyDocument': {
+            'Version': '2012-10-17',
+            'Statement': [{
+                'Action': 'execute-api:Invoke',
+                'Effect': 'Allow',
+                'Resource': ('arn:aws:execute-api:us-east-1:'
+                             '927034868273:*/*/*/*')}]
+        },
+        'context': {'keys': '["send", "recv"]'}})
+    print("Ok")
+    return token
 
 
 if __name__ == "__main__":
