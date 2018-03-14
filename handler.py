@@ -64,6 +64,18 @@ def compose_key(uid, device_id, service):
     return "{}:{}:{}".format(service, uid, device_id)
 
 
+def get_max_index(key):
+    result = index_table.query(
+        KeyConditionExpression=Key("fxa_uid").eq(key),
+        Select="ALL_ATTRIBUTES",
+        ScanIndexForward=False,
+        Limit=1,
+    )
+    if result['Count']:
+        return int(result['Items'][0].get('index'))
+    else:
+        return 0
+
 @log_exceptions
 def store_data(event, context):
     """Store data in S3 and index it in DynamoDB"""
@@ -99,16 +111,7 @@ def store_data(event, context):
     # "data" is coming from a JSON object, and could be a dict, which will
     # need to be serialized.
     s3.Object(S3_BUCKET, s3_filename).put(Body=json.dumps(req_json["data"]))
-    result = index_table.query(
-        KeyConditionExpression=Key("fxa_uid").eq(key),
-        Select="ALL_ATTRIBUTES",
-        ScanIndexForward=False,
-        Limit=1,
-    )
-    if result['Count']:
-        index = int(result['Items'][0].get('index'))+1
-    else:
-        index = 1
+    index = get_max_index(key) + 1
     data_len = len(req_json["data"])
     for i in range(0, 10):
         try:
@@ -143,13 +146,13 @@ def store_data(event, context):
 @log_exceptions
 def get_data(event, context):
     """Retrieve data from S3 using DynamoDB index"""
-    logger.info("Event was set to: {}".format(event))
+    logger.info("Getting data: {}".format(event))
     device_id = event["pathParameters"]["deviceId"]
     fx_uid = event["pathParameters"]["uid"]
-    limit = event["pathParameters"].get("limit")
-    if not limit:
+    limit = event.get("queryStringParameters", {}).get("limit")
+    if limit is None:
         limit = 10
-    limit = min(limit, 10)
+    limit = min(10, max(0, limit))
     try:
         service = valid_service(event["pathParameters"]["service"])
     except HandlerException as ex:
@@ -162,8 +165,14 @@ def get_data(event, context):
             ))
         )
     key = compose_key(uid=fx_uid, device_id=device_id, service=service)
+    if limit == 0:
+        index = get_max_index(key)
+        return dict(
+            headers={"Content-Type": "application/json"},
+            statusCode=200,
+            body=json.dumps(dict(index=index))
+        )
     start_index = None
-    # "queryStringParameters" could be set to None
     if "index" in (event.get("queryStringParameters") or {}):
         start_index = int(event["queryStringParameters"]["index"])
         logger.info("Start index: {}".format(start_index))
@@ -263,7 +272,7 @@ def status(event, context=None):
     )
 
 
-def test_index_storage(headers):
+def test_index_storage():
     data = {"foo": "bar"}
     store_result = store_data({
         "pathParameters": {
@@ -271,7 +280,6 @@ def test_index_storage(headers):
             "uid": "uid-123",
             "service": "sendtab"
         },
-        "headers": headers,
         "body": json.dumps({
             "data": data
         })
@@ -282,7 +290,6 @@ def test_index_storage(headers):
             "uid": "uid-123",
             "service": "sendtab"
         },
-        "headers": headers,
         "queryStringParameters": {
             "index": json.loads(store_result['body'])['index'] - 1
         },
@@ -291,23 +298,35 @@ def test_index_storage(headers):
     assert(body['last'])
     assert(body['index'] == json.loads(store_result['body'])['index'])
     assert(body['messages'][0]['data'] == json.dumps(data))
+
+    index = get_data(
+        {
+            "pathParameters": {
+                "deviceId": "device-123",
+                "uid": "uid-123",
+                "service": "sendtab"
+            },
+            "queryStringParameters": {
+                "limit": 0
+            },
+        }, None)
+    print("Index {}".format(index))
     print('Ok')
 
 
-def test_delete_storge(headers):
+def test_delete_storge():
     del_data({
         "pathParameters": {
             "deviceId": "device-123",
             "uid": "uid-123",
             "service": "sendtab"
         },
-        "headers": headers,
     })
     print("Ok")
 
 
 if __name__ == "__main__":
     print("testing indexed data storage...")
-    test_index_storage({"keys": "[\"send\", \"recv\"]"})
+    test_index_storage()
     print("testing delete...")
-    test_delete_storge({"keys": "[\"send\", \"recv\"]"})
+    test_delete_storge()
