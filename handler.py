@@ -54,8 +54,8 @@ def log_exceptions(f):
 def valid_service(service):
     if service not in SERVICES:
         raise HandlerException(
-           status_code=404,
-           message="Unknown service"
+            status_code=404,
+            message="Unknown service"
         )
     return service
 
@@ -63,6 +63,18 @@ def valid_service(service):
 def compose_key(uid, device_id, service):
     return "{}:{}:{}".format(service, uid, device_id)
 
+
+def get_max_index(key):
+    result = index_table.query(
+        KeyConditionExpression=Key("fxa_uid").eq(key),
+        Select="ALL_ATTRIBUTES",
+        ScanIndexForward=False,
+        Limit=1,
+    )
+    if result['Count']:
+        return int(result['Items'][0].get('index'))
+    else:
+        return 0
 
 @log_exceptions
 def store_data(event, context):
@@ -96,17 +108,10 @@ def store_data(event, context):
         )
     ttl = req_json.get("ttl", DEFAULT_TTL)
     s3_filename = device_id + uuid.uuid4().hex
-    s3.Object(S3_BUCKET, s3_filename).put(Body=req_json["data"])
-    result = index_table.query(
-        KeyConditionExpression=Key("fxa_uid").eq(key),
-        Select="ALL_ATTRIBUTES",
-        ScanIndexForward=False,
-        Limit=1,
-    )
-    if result['Count']:
-        index = int(result['Items'][0].get('index'))+1
-    else:
-        index = 1
+    # "data" is coming from a JSON object, and could be a dict, which will
+    # need to be serialized.
+    s3.Object(S3_BUCKET, s3_filename).put(Body=json.dumps(req_json["data"]))
+    index = get_max_index(key) + 1
     data_len = len(req_json["data"])
     for i in range(0, 10):
         try:
@@ -141,13 +146,13 @@ def store_data(event, context):
 @log_exceptions
 def get_data(event, context):
     """Retrieve data from S3 using DynamoDB index"""
-    logger.info("Event was set to: {}".format(event))
+    logger.info("Getting data: {}".format(event))
     device_id = event["pathParameters"]["deviceId"]
     fx_uid = event["pathParameters"]["uid"]
-    limit = event["pathParameters"].get("limit")
-    if not limit:
+    limit = event.get("queryStringParameters", {}).get("limit")
+    if limit is None:
         limit = 10
-    limit = min(limit, 10)
+    limit = min(10, max(0, limit))
     try:
         service = valid_service(event["pathParameters"]["service"])
     except HandlerException as ex:
@@ -160,14 +165,20 @@ def get_data(event, context):
             ))
         )
     key = compose_key(uid=fx_uid, device_id=device_id, service=service)
+    if limit == 0:
+        index = get_max_index(key)
+        return dict(
+            headers={"Content-Type": "application/json"},
+            statusCode=200,
+            body=json.dumps(dict(index=index))
+        )
     start_index = None
-    # "queryStringParameters" could be set to None
     if "index" in (event.get("queryStringParameters") or {}):
         start_index = int(event["queryStringParameters"]["index"])
         logger.info("Start index: {}".format(start_index))
     key_cond = Key("fxa_uid").eq(key)
     if start_index:
-        key_cond = key_cond & Key("index").gte(start_index)
+        key_cond = key_cond & Key("index").gt(start_index)
     results = index_table.query(
         Select="ALL_ATTRIBUTES",
         KeyConditionExpression=key_cond,
@@ -237,13 +248,13 @@ def del_data(event, context=None):
             s3.Object(S3_BUCKET, item["s3_filename"]).delete()
     except Exception as ex:
         return dict(
-                headers={"Content-Type": "application/json"},
-                statusCode=500,
-                body=json.dumps(dict(
-                    status=500,
-                    error="Could not delete all data {}".format(ex),
-                ))
-            )
+            headers={"Content-Type": "application/json"},
+            statusCode=500,
+            body=json.dumps(dict(
+                status=500,
+                error="Could not delete all data {}".format(ex),
+            ))
+        )
     return dict(
         headers={"Content-Type": "application/json"},
         statusCode=200,
@@ -257,11 +268,11 @@ def status(event, context=None):
     return dict(
         headers={"Content-Type": "application/json"},
         statusCode=200,
-        body=json.dumps(dict(status=200, message="ok"))
+        body=json.dumps(dict(status=200, message="ok", server=FXA_HOST))
     )
 
 
-def test_index_storage(headers):
+def test_index_storage():
     data = {"foo": "bar"}
     store_result = store_data({
         "pathParameters": {
@@ -269,7 +280,6 @@ def test_index_storage(headers):
             "uid": "uid-123",
             "service": "sendtab"
         },
-        "headers": headers,
         "body": json.dumps({
             "data": data
         })
@@ -280,32 +290,43 @@ def test_index_storage(headers):
             "uid": "uid-123",
             "service": "sendtab"
         },
-        "headers": headers,
         "queryStringParameters": {
-            "index": json.loads(store_result['body'])['index']
+            "index": json.loads(store_result['body'])['index'] - 1
         },
     }, None)
     body = json.loads(fetch_result['body'])
     assert(body['last'])
     assert(body['index'] == json.loads(store_result['body'])['index'])
     assert(body['messages'][0]['data'] == json.dumps(data))
+
+    index = get_data(
+        {
+            "pathParameters": {
+                "deviceId": "device-123",
+                "uid": "uid-123",
+                "service": "sendtab"
+            },
+            "queryStringParameters": {
+                "limit": 0
+            },
+        }, None)
+    print("Index {}".format(index))
     print('Ok')
 
 
-def test_delete_storge(headers):
+def test_delete_storge():
     del_data({
         "pathParameters": {
             "deviceId": "device-123",
             "uid": "uid-123",
             "service": "sendtab"
         },
-        "headers": headers,
     })
     print("Ok")
 
 
 if __name__ == "__main__":
     print("testing indexed data storage...")
-    test_index_storage({"keys": "[\"send\", \"recv\"]"})
+    test_index_storage()
     print("testing delete...")
-    test_delete_storge({"keys": "[\"send\", \"recv\"]"})
+    test_delete_storge()
