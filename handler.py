@@ -16,7 +16,7 @@ logger.setLevel(logging.INFO)
 # Constants
 DEFAULT_TTL = 60 * 60 * 24
 SERVICES = [x.strip().lower()
-            for x in os.environ.get("SERVICES", "sendtab").split(",")]
+            for x in os.environ.get("SERVICES", "fxa").split(",")]
 
 # Environment Constants
 S3_BUCKET = os.environ.get("S3_BUCKET", "pushbox-test")
@@ -278,7 +278,7 @@ def test_index_storage():
         "pathParameters": {
             "deviceId": "device-123",
             "uid": "uid-123",
-            "service": "sendtab"
+            "service": "fxa"
         },
         "body": json.dumps({
             "data": data
@@ -288,7 +288,7 @@ def test_index_storage():
         "pathParameters": {
             "deviceId": "device-123",
             "uid": "uid-123",
-            "service": "sendtab"
+            "service": "fxa"
         },
         "queryStringParameters": {
             "index": json.loads(store_result['body'])['index'] - 1
@@ -304,7 +304,7 @@ def test_index_storage():
             "pathParameters": {
                 "deviceId": "device-123",
                 "uid": "uid-123",
-                "service": "sendtab"
+                "service": "fxa"
             },
             "queryStringParameters": {
                 "limit": 0
@@ -319,7 +319,7 @@ def test_delete_storge():
         "pathParameters": {
             "deviceId": "device-123",
             "uid": "uid-123",
-            "service": "sendtab"
+            "service": "fxa"
         },
     })
     print("Ok")

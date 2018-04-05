@@ -14,7 +14,7 @@ provider:
       Ref: indexTable
     FXA_VERIFY_HOST: ${opt:fxa, 'oauth.stage.mozaws.net'}
     # A comma separated list of allowed services
-    SERVICES: "sendtab"
+    SERVICES: "fxa"
 
 plugins:
   - serverless-python-requirements

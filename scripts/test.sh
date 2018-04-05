@@ -6,9 +6,9 @@ if [ "$DHOST" == "" ]; then
 fi
 UID="test_uid"
 DID="test_deviceid"
-curl -v -X POST "https://$DHOST/dev/v1/store/$UID/$DID/sendtab" \
+curl -v -X POST "https://$DHOST/dev/v1/store/$UID/$DID/fxa" \
 -H "Authentication: fxa sometoken" \
 -d @post.data
 
-curl -v -X GET "https://$DHOST/dev/v1/store/$UID/$DID/sendtab" \
+curl -v -X GET "https://$DHOST/dev/v1/store/$UID/$DID/fxa" \
 -H "Authentication: fxa sometoken" \

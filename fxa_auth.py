@@ -194,7 +194,7 @@ def test_fxa_validate():
     result = fxa_validate_read(
         {"type": 'TOKEN',
          "methodArn": ("arn:aws:execute-api:us-east-1:927034868273:3ksq"
-                       "xftunj/dev/POST/v1/store/sendtab/e6bddbeae45048"
+                       "xftunj/dev/POST/v1/store/fxa/e6bddbeae45048"
                        "838e5a97eeba6633a7/11579fc58d0c5120329b5f7e0f7e"
                        "7c3a"),
          "authorizationToken": "Bearer {}".format(token)},
