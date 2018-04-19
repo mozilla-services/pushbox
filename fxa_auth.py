@@ -31,18 +31,11 @@ def log_exceptions(f):
 @log_exceptions
 def validate(event):
     logger.info("Auth was set to: {}".format(event))
-    # Parse the ARN.
-    (user_id, device_id) = event['methodArn'].split(
-        ":")[-1].split("/")[5:]
-    if not device_id:
-        raise HandlerException(
-            status_code=500,
-            message="Missing device_id")
     # extract the FxA Server Key from the Authorization header
     try:
         token = event["authorizationToken"]
         assert token.lower().startswith("fxa-server-key")
-        auth = token.strip().split(None, 1)[1].lower()
+        auth = token.strip().split(None, 1)[1]
     except KeyError:
         raise HandlerException(
             status_code=401,
@@ -52,11 +45,19 @@ def validate(event):
             status_code=401,
             message="Invalid authorization header"
         )
+    logging.info(""" "{}" ?= "{}" """.format(auth, FXA_SERVER_KEY))
     if auth != FXA_SERVER_KEY:
         raise HandlerException(
             status_code=401,
             message="Invalid authorization token"
         )
+    ## Parse the ARN.
+    #(user_id, device_id) = event['methodArn'].split(
+    #    ":")[-1].split("/")[5:]
+    #if not device_id:
+    #    raise HandlerException(
+    #        status_code=500,
+    #        message="Missing device_id")
     return True
 
 
@@ -135,4 +136,4 @@ def test_fxa_validate():
 if __name__ == "__main__":
     print("testing FxA validation...")
     token = test_fxa_validate()
-    print("Authorization: FxA-Server-Key {}".format(token))
+    print("Authorization: FxAServerKey {}".format(token))

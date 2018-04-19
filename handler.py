@@ -124,7 +124,11 @@ def get_data(event, context):
     logger.info("Getting data: {}".format(event))
     device_id = event["pathParameters"]["deviceId"]
     fx_uid = event["pathParameters"]["uid"]
-    limit = event.get("queryStringParameters", {}).get("limit")
+    limit = None
+    # event could set "queryStringParameters" to the value None
+    params = event.get("queryStringParameters")
+    if params is not None:
+        limit = event.get("limit")
     if limit is None:
         limit = 10
     limit = min(10, max(0, limit))
@@ -171,7 +175,7 @@ def get_data(event, context):
         messages.append({'index': result_index,
                          'data': result['data']})
         index = max(index, result_index)
-    payload = {"last": True, "index": start_index}
+    payload = {"last": True, "index": start_index or 0}
     if results:
         # should this be comparing against "scannedCount"?
         payload["last"] = len(results) < limit
