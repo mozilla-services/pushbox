@@ -41,11 +41,9 @@ certificate.
 2) The cert MUST be in the region that you're deploying to.
 
 ## Deploy command
-`sls deploy [-s stage] [--fxa fxa_auth_server]`
+`sls deploy [-s stage]`
 
 `-s` optionally changes the **stage** from `dev`
-
-`--fxa` optionally changes the **fxa_auth_server_host** from `oauth_stage_mozaws.net`
 
 
 ## Post deploy steps

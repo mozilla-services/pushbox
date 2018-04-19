@@ -15,15 +15,10 @@ logger.setLevel(logging.INFO)
 
 # Constants
 DEFAULT_TTL = 60 * 60 * 24
-SERVICES = [x.strip().lower()
-            for x in os.environ.get("SERVICES", "fxa").split(",")]
 
 # Environment Constants
 S3_BUCKET = os.environ.get("S3_BUCKET", "pushbox-test")
 DDB_TABLE = os.environ.get("DDB_TABLE", "pushbox_test")
-# use stage as default.
-# prod = oauth.accounts.firefox.com
-FXA_HOST = os.environ.get("FXA_VERIFY_HOST", "oauth.stage.mozaws.net")
 
 # Clients
 s3 = boto3.resource("s3")
@@ -51,17 +46,8 @@ def log_exceptions(f):
     return wrapper
 
 
-def valid_service(service):
-    if service not in SERVICES:
-        raise HandlerException(
-            status_code=404,
-            message="Unknown service"
-        )
-    return service
-
-
-def compose_key(uid, device_id, service):
-    return "{}:{}:{}".format(service, uid, device_id)
+def compose_key(uid, device_id):
+    return "{}:{}".format(uid, device_id)
 
 
 def get_max_index(key):
@@ -83,18 +69,7 @@ def store_data(event, context):
     device_id = event["pathParameters"]["deviceId"]
     fx_uid = event["pathParameters"]["uid"]
     try:
-        service = valid_service(event["pathParameters"]["service"])
-    except HandlerException as ex:
-        return dict(
-            headers={"Content-Type": "application/json"},
-            statusCode=ex.status_code,
-            body=json.dumps(dict(
-                status=ex.status_code,
-                error=ex.message
-            ))
-        )
-    try:
-        key = compose_key(uid=fx_uid, device_id=device_id, service=service)
+        key = compose_key(uid=fx_uid, device_id=device_id)
         req_json = json.loads(event["body"])
         logger.info("data: {}".format(req_json))
     except ValueError as ex:
@@ -122,7 +97,6 @@ def store_data(event, context):
                     fxa_uid=key,
                     index=index,
                     device_id=device_id,
-                    service=service,
                     ttl=int(time.time()) + ttl,
                     s3_filename=s3_filename,
                     s3_file_size=data_len
@@ -153,18 +127,7 @@ def get_data(event, context):
     if limit is None:
         limit = 10
     limit = min(10, max(0, limit))
-    try:
-        service = valid_service(event["pathParameters"]["service"])
-    except HandlerException as ex:
-        return dict(
-            headers={"Content-Type": "application/json"},
-            statusCode=ex.status_code,
-            body=json.dumps(dict(
-                status=ex.status_code,
-                error="{}".format(ex),
-            ))
-        )
-    key = compose_key(uid=fx_uid, device_id=device_id, service=service)
+    key = compose_key(uid=fx_uid, device_id=device_id)
     if limit == 0:
         index = get_max_index(key)
         return dict(
@@ -192,7 +155,6 @@ def get_data(event, context):
             response = s3.Object(S3_BUCKET, item["s3_filename"]).get()
             data = response["Body"].read().decode('utf-8')
             item["data"] = data
-            item["service"] = service
         except ClientError as ex:
             logger.error(ex)
             return dict(
@@ -226,18 +188,7 @@ def del_data(event, context=None):
     """Delete data for a given user/device/channel"""
     uid = event['pathParameters']["uid"]
     device_id = event['pathParameters']['deviceId']
-    try:
-        service = valid_service(event["pathParameters"]["service"])
-    except HandlerException as ex:
-            return dict(
-                headers={"Content-Type": "application/json"},
-                statusCode=ex.status_code,
-                body=json.dumps(dict(
-                    status=ex.status_code,
-                    error="{}".format(ex),
-                ))
-            )
-    key = compose_key(uid=uid, device_id=device_id, service=service)
+    key = compose_key(uid=uid, device_id=device_id)
     items = index_table.query(
         Select="ALL_ATTRIBUTES",
         KeyConditionExpression=Key("fxa_uid").eq(key),
@@ -268,7 +219,7 @@ def status(event, context=None):
     return dict(
         headers={"Content-Type": "application/json"},
         statusCode=200,
-        body=json.dumps(dict(status=200, message="ok", server=FXA_HOST))
+        body=json.dumps(dict(status=200, message="ok"))
     )
 
 
@@ -277,8 +228,7 @@ def test_index_storage():
     store_result = store_data({
         "pathParameters": {
             "deviceId": "device-123",
-            "uid": "uid-123",
-            "service": "fxa"
+            "uid": "uid-123"
         },
         "body": json.dumps({
             "data": data
@@ -287,8 +237,7 @@ def test_index_storage():
     fetch_result = get_data({
         "pathParameters": {
             "deviceId": "device-123",
-            "uid": "uid-123",
-            "service": "fxa"
+            "uid": "uid-123"
         },
         "queryStringParameters": {
             "index": json.loads(store_result['body'])['index'] - 1
@@ -303,8 +252,7 @@ def test_index_storage():
         {
             "pathParameters": {
                 "deviceId": "device-123",
-                "uid": "uid-123",
-                "service": "fxa"
+                "uid": "uid-123"
             },
             "queryStringParameters": {
                 "limit": 0
@@ -318,8 +266,7 @@ def test_delete_storge():
     del_data({
         "pathParameters": {
             "deviceId": "device-123",
-            "uid": "uid-123",
-            "service": "fxa"
+            "uid": "uid-123"
         },
     })
     print("Ok")

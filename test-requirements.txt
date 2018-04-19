@@ -11,4 +11,3 @@ requests
 PyBrowserID
 webob
 hawkauthlib
-PyFxA
