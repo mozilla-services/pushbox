@@ -12,9 +12,7 @@ provider:
       Ref: dataBucket
     DDB_TABLE:
       Ref: indexTable
-    FXA_VERIFY_HOST: ${opt:fxa, 'oauth.stage.mozaws.net'}
-    # A comma separated list of allowed services
-    SERVICES: "fxa"
+    FXA_SERVER_KEY: ${env:FXA_SERVER_KEY}
 
 plugins:
   - serverless-python-requirements
@@ -40,10 +38,10 @@ functions:
     events:
       - http:
           authorizer:
-            name: fxaWriteAuthorizer
+            name: fxaAuthorizer
             identitySource: method.request.header.Authorization
             type: token
-          path: v1/store/{service}/{uid}/{deviceId}
+          path: v1/store/{uid}/{deviceId}
           method: post
           cors: true
   get_data:
@@ -52,10 +50,10 @@ functions:
     events:
       - http:
           authorizer:
-            name: fxaReadAuthorizer
+            name: fxaAuthorizer
             identitySource: method.request.header.Authorization
             type: token
-          path: v1/store/{service}/{uid}/{deviceId}
+          path: v1/store/{uid}/{deviceId}
           method: get
           cors: true
           request:
@@ -70,10 +68,10 @@ functions:
     events:
       - http:
           authorizer:
-            name: fxaWriteAuthorizer
+            name: fxaAuthorizer
             identitySource: method.request.header.Authorization
             type: token
-          path: v1/store/{service}/{uid}/{deviceId}
+          path: v1/store/{uid}/{deviceId}
           method: delete
           cors: true
   health:
@@ -84,10 +82,8 @@ functions:
           path: v1/status
           method: get
           cors: true
-  fxaReadAuthorizer:
-    handler: fxa_auth.fxa_validate_read
-  fxaWriteAuthorizer:
-    handler: fxa_auth.fxa_validate_write
+  fxaAuthorizer:
+    handler: fxa_auth.fxa_validate
 
 resources:
   Resources:
