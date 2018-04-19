@@ -62,6 +62,7 @@ def get_max_index(key):
     else:
         return 0
 
+
 @log_exceptions
 def store_data(event, context):
     """Store data in S3 and index it in DynamoDB"""

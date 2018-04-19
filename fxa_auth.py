@@ -1,13 +1,12 @@
 import logging
-import json
 import os
-from urllib import request, error
 from functools import wraps
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-FXA_SERVER_KEY = os.environ.get("FXA_SERVER_KEY", "configure_me").lower()
+FXA_SERVER_KEY = os.environ.get("FXA_SERVER_KEY", "configure_me")
+
 
 class HandlerException(Exception):
     def __init__(self, status_code=500, message="Unknown Error"):
@@ -109,7 +108,7 @@ def fxa_validate(event, context):
 
 def test_fxa_validate():
 
-    token = os.environ.get("FXA_TOKEN")
+    token = os.environ.get("FXA_TOKEN", FXA_SERVER_KEY)
     result = fxa_validate(
         {"type": 'TOKEN',
          "methodArn": ("arn:aws:execute-api:us-east-1:927034868273:3ksq"
@@ -131,6 +130,7 @@ def test_fxa_validate():
     })
     print("Ok")
     return token
+
 
 if __name__ == "__main__":
     print("testing FxA validation...")
