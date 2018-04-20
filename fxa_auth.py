@@ -136,4 +136,4 @@ def test_fxa_validate():
 if __name__ == "__main__":
     print("testing FxA validation...")
     token = test_fxa_validate()
-    print("Authorization: FxAServerKey {}".format(token))
+    print("Authorization: FxA-Server-Key {}".format(token))
