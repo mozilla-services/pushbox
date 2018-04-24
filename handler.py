@@ -127,7 +127,10 @@ def get_data(event, context):
     # event could set "queryStringParameters" to the value None
     params = event.get("queryStringParameters")
     if params is not None:
-        limit = params.get("limit")
+        try:
+            limit = int(params.get("limit"))
+        except (ValueError, TypeError):
+            limit = None
     if limit is None:
         limit = 10
     limit = min(10, max(0, limit))
@@ -260,7 +263,7 @@ def test_index_storage():
                 "uid": "uid-123"
             },
             "queryStringParameters": {
-                "limit": 0
+                "limit": "0"
             },
         }, None)
     assert(high_index == json.loads(index["body"])["index"])
