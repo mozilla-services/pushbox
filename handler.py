@@ -84,9 +84,8 @@ def store_data(event, context):
         )
     ttl = req_json.get("ttl", DEFAULT_TTL)
     s3_filename = device_id + uuid.uuid4().hex
-    # "data" is coming from a JSON object, and could be a dict, which will
-    # need to be serialized.
-    s3.Object(S3_BUCKET, s3_filename).put(Body=json.dumps(req_json["data"]))
+    # Data is presumed to be an encrypted blob
+    s3.Object(S3_BUCKET, s3_filename).put(Body=req_json["data"])
     index = get_max_index(key) + 1
     data_len = len(req_json["data"])
     for i in range(0, 10):
@@ -128,7 +127,7 @@ def get_data(event, context):
     # event could set "queryStringParameters" to the value None
     params = event.get("queryStringParameters")
     if params is not None:
-        limit = event.get("limit")
+        limit = params.get("limit")
     if limit is None:
         limit = 10
     limit = min(10, max(0, limit))
@@ -229,7 +228,7 @@ def status(event, context=None):
 
 
 def test_index_storage():
-    data = {"foo": "bar"}
+    data = "BlockOfEncryptedStuff"
     store_result = store_data({
         "pathParameters": {
             "deviceId": "device-123",
@@ -249,9 +248,10 @@ def test_index_storage():
         },
     }, None)
     body = json.loads(fetch_result['body'])
+    high_index = body['index']
     assert(body['last'])
     assert(body['index'] == json.loads(store_result['body'])['index'])
-    assert(body['messages'][0]['data'] == json.dumps(data))
+    assert(body['messages'][0]['data'] == data)
 
     index = get_data(
         {
@@ -263,7 +263,7 @@ def test_index_storage():
                 "limit": 0
             },
         }, None)
-    print("Index {}".format(index))
+    assert(high_index == json.loads(index["body"])["index"])
     print('Ok')
 
 
