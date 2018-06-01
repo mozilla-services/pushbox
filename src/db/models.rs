@@ -1,3 +1,4 @@
+//! Database model functions.
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use diesel::mysql::MysqlConnection;
@@ -10,16 +11,24 @@ use serde::ser::{Serialize, SerializeStruct, Serializer};
 use super::schema::pushboxv1;
 use error::{HandlerErrorKind, HandlerResult};
 
+/// MySQL record and table definition for Pushbox
 #[derive(Debug, Queryable, Insertable)]
 #[table_name = "pushboxv1"]
+
 pub struct Record {
+    /// User identifier
     pub user_id: String,
+    /// FxA Device Identifier
     pub device_id: String,
-    pub ttl: i64, // expiration date in UTC.
+    /// Expiration date (in UTC seconds)
+    pub ttl: i64,
+    /// Pushbox record index
     pub idx: i64,
+    /// Actual data to be stored.
     pub data: Vec<u8>,
 }
 
+/// Serialize the Pushbox Data Record into something that the JSON functions can process.
 impl Serialize for Record {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -34,6 +43,7 @@ impl Serialize for Record {
     }
 }
 
+/// Convenience function to return the proper UTC "now"
 pub fn now_utc() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -41,15 +51,16 @@ pub fn now_utc() -> u64 {
         .as_secs() as u64
 }
 
+/// Convenience function to return the UTC offset from "now"
 pub fn calc_ttl(seconds: u64) -> u64 {
     now_utc() + seconds
 }
 
-/// An authorized broadcaster
-
+/// The general data management object.
 pub struct DatabaseManager {}
 
 impl DatabaseManager {
+    /// Return the greatest index number for a given user & device.
     pub fn max_index(conn: &MysqlConnection, user_id: &str, device_id: &str) -> HandlerResult<u64> {
         let max_index = pushboxv1::table
             .select(pushboxv1::idx)
@@ -63,6 +74,7 @@ impl DatabaseManager {
         Ok(max_index as u64)
     }
 
+    /// Write a new data record for a User & Device
     pub fn new_record(
         conn: &MysqlConnection,
         user_id: &str,
@@ -88,6 +100,8 @@ impl DatabaseManager {
         Ok(record_index as u64)
     }
 
+    /// Fetch all records for a given User & Device starting at Index and restricted to the
+    /// first Limit results.
     pub fn read_records(
         conn: &MysqlConnection,
         user_id: &str,

@@ -1,20 +1,28 @@
+//! Pushbox configuration options
+//!
 use rocket::config::{Config, Table};
 use rocket::request::{self, FromRequest};
 use rocket::{Outcome, Request, State};
 
+/// Configuration options for Pushbox
 // Due to some private variables, this must be defined in the same module as rocket.manage()
 #[derive(Debug, Clone)]
 pub struct ServerConfig {
-    // Authorization Configuration block
+    /// FxA OAuth host (default: `oauth.stage.mozaws.net`)
     pub fxa_host: String,
+    /// Skip authorization checks if set to "true" (default: `false`)
     pub dryrun: bool,
+    /// Default Time To Live for stored data (default: `3600`s)
     pub default_ttl: u64,
+    /// FxA OAuth application name used in scopes (default: `pushbox`)
     pub auth_app_name: String,
+    /// Testing data (used only in unit tests)
     pub test_data: Table,
+    /// FxA Server Key Value (default `None`)
     pub server_token: Option<String>,
 }
 
-// Helper functions to pull values from the private config.
+/// Helper functions to pull values from the private config.
 impl ServerConfig {
     pub fn new(config: &Config) -> ServerConfig {
         // Transcode rust Config values
@@ -45,6 +53,7 @@ impl ServerConfig {
 impl<'a, 'r> FromRequest<'a, 'r> for ServerConfig {
     type Error = ();
 
+    /// Automagically reutrn the configuration from the guarded rocket data for a request handler
     fn from_request(req: &'a Request<'r>) -> request::Outcome<Self, ()> {
         Outcome::Success(req.guard::<State<ServerConfig>>().unwrap().inner().clone())
     }
