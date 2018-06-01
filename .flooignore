@@ -1,0 +1,10 @@
+extern
+node_modules
+tmp
+vendor
+.idea
+.code
+.vscode
+.git
+target
+rls
