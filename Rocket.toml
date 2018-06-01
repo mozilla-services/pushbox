@@ -1,0 +1,12 @@
+[development]
+database_url="mysql://test:test@localhost/pushbox"
+fxa_host="oauth.stage.mozaws.net"
+dryrun=true
+server_token="Correct_Horse_Battery_Staple_1"
+sqs_queue = "https://sqs.us-east-1.amazonaws.com/927034868273/rust_sqs_test"
+[staging]
+
+[production]
+
+[global.limits]
+json = 1048576
