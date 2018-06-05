@@ -1,3 +1,4 @@
+//! Database module
 pub mod models;
 pub mod schema;
 
@@ -31,6 +32,11 @@ pub fn run_embedded_migrations(config: &Config) -> Result<()> {
     Ok(embedded_migrations::run(&conn)?)
 }
 
+/// Generate a pool of MySQL handlers from the Rocket.toml configuration file.
+///
+/// Options used:
+/// * **database_url**: The DSN URL to access the MySQL Database.  `mysql://user:pass@host:port/database`
+/// * **database_pool_max_size**: Max database pool size (default: 10)
 pub fn pool_from_config(config: &Config) -> Result<MysqlPool> {
     let database_url = config
         .get_str("database_url")
@@ -42,6 +48,7 @@ pub fn pool_from_config(config: &Config) -> Result<MysqlPool> {
     Ok(pman)
 }
 
+/// An [r2d2.mysql] connection object
 pub struct Conn(pub PooledConnection<ConnectionManager<MysqlConnection>>);
 
 impl Deref for Conn {
@@ -53,6 +60,7 @@ impl Deref for Conn {
     }
 }
 
+/// Auto-magically return the guarded rocket.rs MySqlPool for a request handler.
 impl<'a, 'r> FromRequest<'a, 'r> for Conn {
     type Error = ();
 

@@ -1,3 +1,5 @@
+//! FxA uses SQS to broadcast events regarding a user's activities with FxA. We only
+//! need to pay attention to the deletion events.
 use std::convert::TryFrom;
 use std::env;
 use std::rc::Rc;
@@ -12,11 +14,16 @@ use error::Result;
 use failure::{self, err_msg};
 use logging::RBLogger;
 
+/// An SQS FxA event.
 #[derive(Default, Debug, Clone)]
 pub struct SyncEvent {
-    pub event: String, // act on "delete", "device:delete"; ignore others
+    /// The type of event. We need to act only for `delete` or `device:delete`
+    pub event: String,
+    /// The FxA User Identifier.
     pub uid: String,
+    /// The FxA Device Identifier.
     pub id: String,
+    /// The SQS message acknowledgement handle.
     pub handle: String,
 }
 
@@ -38,6 +45,7 @@ impl TryFrom<Message> for SyncEvent {
     }
 }
 
+/// Object for handling the FxA Sync SQS queue
 #[derive(Clone)]
 pub struct SyncEventQueue {
     sqs: Rc<SqsClient>,
@@ -46,6 +54,12 @@ pub struct SyncEventQueue {
 }
 
 impl SyncEventQueue {
+    /// Generate a new SyncEventQueue from the Rocket.toml config file and environment.
+    /// This will pull the optional AWS region override from the "AWS_LOCAL_SQS" environment
+    /// variable.
+    ///
+    /// Configuration Options:
+    /// * **sqs_url**: AWS SWS url to fetch data from. Defaults to the dev FxA account change URL.
     pub fn from_config(config: &Config, logger: &RBLogger) -> SyncEventQueue {
         let region = env::var("AWS_LOCAL_SQS")
             .map(|endpoint| Region::Custom {
@@ -64,7 +78,7 @@ impl SyncEventQueue {
         }
     }
 
-    //to "ack" an SQS message, you delete it from the queue.
+    /// Acknowledge a received SQS message by deleting it from the queue.
     pub fn ack_message(&self, event: &SyncEvent) -> Result<()> {
         let sqs = self.sqs.clone();
         let mut request = DeleteMessageRequest::default();
@@ -76,7 +90,7 @@ impl SyncEventQueue {
         Ok(())
     }
 
-    // Fetch message from sqs
+    /// Fetch message from sqs
     pub fn fetch(&self) -> Option<SyncEvent> {
         let sqs = self.sqs.clone();
         // capture response via retry_if(move||{..})

@@ -1,3 +1,5 @@
+//! Handle incoming HTTP requests.
+
 use std::cmp;
 use std::str::Utf8Error;
 use std::{thread, time};
@@ -18,16 +20,25 @@ use failure::Error;
 use logging::RBLogger;
 use sqs::{self, SyncEvent};
 
+/// An incoming Data Storage request.
 #[derive(Deserialize, Debug)]
 pub struct DataRecord {
+    /// The expected time to live for a given record
     ttl: u64,
+    // The serialized data to store.
     data: String,
 }
 
+/// The request arguments available.
 #[derive(Debug)]
 pub struct Options {
+    /// The start index to begin querying from.
     pub index: Option<u64>,
+    /// The max number of records to return for this request.
     pub limit: Option<u64>,
+    /// The status of the client:
+    /// * **lost** - Client just needs to know the latest index.
+    /// * **new**  - Client needs latest index and all available records.
     pub status: Option<String>,
 }
 
@@ -38,16 +49,10 @@ fn as_u64(opt: Result<String, Utf8Error>) -> u64 {
         .unwrap_or(0)
 }
 
-/// Valid GET options include:
-///
-///  * *index* - Start from a given index number.
-///  * *limit* - Only return **limit** number of items.
-///  * *status* - Friendly format to specify the state of the client:
-///    * *new* - This is a new UA, that needs all pending records.
-///    * *lost* - The UA is lost and just needs to get the latest index record.
 impl<'f> FromForm<'f> for Options {
     type Error = ();
 
+    /// Convert the query arguments into a rust structure.
     fn from_form(items: &mut FormItems<'f>, _strict: bool) -> Result<Options, ()> {
         let mut opt = Options {
             index: None,
@@ -83,6 +88,9 @@ impl Server {
         Ok(())
     }
 
+    /// Initialize the server and prepare it for running. This will run any r2d2 embedded
+    /// migrations required, create various guarded pool objects, and start the SQS handler
+    /// (unless we're testing)
     pub fn start(rocket: rocket::Rocket) -> Result<rocket::Rocket, Error> {
         db::run_embedded_migrations(rocket.config())?;
 
@@ -143,6 +151,10 @@ pub fn check_token(
 }
 
 /// Stub for FxA server token permission authentication.
+///
+/// The Auth module actually checks the Authorization header for this value and no further
+/// processing is required. If additional processing of the token value should be necessary,
+/// place it here.
 pub fn check_server_token(
     _config: &ServerConfig,
     _method: Method,
@@ -155,6 +167,10 @@ pub fn check_server_token(
 }
 
 /// Check the permissions of the FxA token to see if read/write access is provided.
+///
+/// auth::FxAAuthenticator::from_fxa_oauth() does a general FxA validation check, but
+/// cannot check scopes for various reasons. Check the returned scopes here to finalize
+/// authorization.
 pub fn check_fxa_token(
     config: &ServerConfig,
     method: Method,
@@ -199,9 +215,9 @@ pub fn check_fxa_token(
     Err(HandlerErrorKind::Unauthorized("Access Token Unauthorized".to_string()).into())
 }
 
-// Method handlers:::
-// Apparently you can't set these on impl methods, must be at top level.
-//  query string parameters for limit and index
+/// ## GET method handler (with options)
+///
+/// Process a `GET /<user>/<device>?<options>` request and return appropriate records.
 #[get("/<user_id>/<device_id>?<options>")]
 fn read_opt(
     conn: Conn,
@@ -260,6 +276,10 @@ fn read_opt(
     })))
 }
 
+/// ## GET method handler (without options)
+///
+/// Process a `GET /<user>/<device>` request and return appropriate records.
+/// Currently, rocket.rs requires these to be separate handlers.
 #[get("/<user_id>/<device_id>")]
 fn read(
     conn: Conn,
@@ -284,7 +304,13 @@ fn read(
     )
 }
 
-/// Write the user data to the database.
+/// ## POST method handler
+///
+/// Process a `POST /<user>/<device>` request containing a JSON body
+/// ```
+/// {"ttl"=TimeToLiveInteger, "data"="base64EncryptedDataBlob"}
+/// ```
+///
 #[post("/<user_id>/<device_id>", data = "<data>")]
 fn write(
     conn: Conn,
@@ -328,6 +354,10 @@ fn write(
     })))
 }
 
+/// ## DELETE method handler for user and device data
+///
+/// Process a `DELETE /<user>/<device>` request which removes all records for a given
+/// user and device.
 #[delete("/<user_id>/<device_id>")]
 fn delete(
     conn: Conn,
@@ -342,6 +372,9 @@ fn delete(
     Ok(Json(json!({})))
 }
 
+/// ## DELETE method handler for all user data
+///
+/// Process a `DELETE /<user>` request whice removes all records for a given user.
 #[delete("/<user_id>")]
 fn delete_user(
     conn: Conn,
@@ -355,6 +388,10 @@ fn delete_user(
     Ok(Json(json!({})))
 }
 
+/// ## GET status/heartbeat
+///
+/// Process a `GET /status` request returning a heartbeat `200 Ok` response if all
+/// is well
 #[get("/status")]
 fn status(config: ServerConfig) -> HandlerResult<Json> {
     let config = config;

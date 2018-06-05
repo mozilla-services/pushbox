@@ -70,3 +70,90 @@ e.g.
 
 Note: No garbage collection is currently done for the database. Heavy use
 might warrant deleting old records every so often.
+
+# API
+
+Pushbox is normally called via a HTTP interface using Authorized calls. Responses are generally JSON objects with appropriate HTTP status codes to indicate success/failure.
+
+## Authorization
+
+All calls to Pushbox require authorization. Authorization is specified by the `Authorization` header and can be either via a Server-Key or using Firefox Accounts OAuth token scopes. The method of authorization shall be determined and set by operations. It is **strongly** suggested that if Server-Key is used, access to PushBox be limited to an ACL of calling Sync servers. 
+
+e.g.
+
+```
+Authorization: fxa-server-key Correct-Horse-Battery-Staple-1
+```
+
+
+## GET /v1/store/< user> /< device >[?< options >]
+
+Fetch data for a `<user>` on a `<device>`. 
+
+Options may be one or more of the following:
+
+* *index* - offset index to being new messages.
+* *limit* - maximum number of messages to return. This will include the next index value to use. 
+* *status* - Quick set the index and limit values:
+  * *new* - client is new, and needs all records.
+  * *lost* - client only needs latest index.
+
+The return value is JSON structure: 
+
+```javascript
+{ "last": true, /* boolean indicating this is the last data block */
+  "index": 123, /* the highest message index value returned */
+  "status": 200, /* HTTP status for result */
+  "messages": [
+    {"index": 123, /* Message block index */
+     "data": "aBc1..." /* encrypted data block */
+    }, ...
+  ]
+}
+```
+
+## POST /v1/store/< user >/< device >
+
+Write a databblock for a `<user>` on `<device>`
+
+The body of the post message is a JSON structure:
+
+```javascript
+{"ttl": 3600, /* Time for the data to live in seconds.*/
+ "data": "aBc1..." /* Encrypted data block to store */
+}
+```
+
+**NOTE:** Please be certain to encrypt the body of the data you wish to store. No encryption is done on the server side, and even if it was, there's no guarantee that it couldn't be reversed by a disgruntled employee or malicious agent.
+
+The returned value is a JSON structure:
+
+```javascript
+{
+  "status": 200, /* The HTTP status for the result */
+  "index": 123 /* the index number of the stored record */
+}
+```
+
+## DELETE /v1/store/< user >[/< device >]
+
+Delete all records for a given user or just a given user's device.
+
+This call returns just an empty object.
+
+
+## GET /v1/store/status
+
+Return the status of the server.
+
+This call is only used for server status checks.
+
+# Database
+
+Pushbox requires a configured MySQL compliant server. Pushbox requires the configuration file to contain the proper credentials, but will create any require table or indexes. Currently, there is no garbage collection done for expired, unread records. It is suggested that a regularly scheduled command be created to run 
+
+```sql
+DELETE from pushboxv1 where TTL < unix_timestamp();
+```
+
+This function may be added to pushbox at a later date.

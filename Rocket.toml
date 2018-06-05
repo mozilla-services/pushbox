@@ -1,12 +1,37 @@
+## configuration for local development
 [development]
+## Database DSN URL.
 database_url="mysql://test:test@localhost/pushbox"
+## used by FxA OAuth token authorization.
 fxa_host="oauth.stage.mozaws.net"
+## set "dryrun" to "true" to skip ANY authorization checks.
 dryrun=true
+## used by the FXA Server key authorization
 server_token="Correct_Horse_Battery_Staple_1"
-sqs_queue = "https://sqs.us-east-1.amazonaws.com/927034868273/rust_sqs_test"
-[staging]
+sqs_url="https://sqs.us-east-1.amazonaws.com/927034868273/rust_sqs_test"
 
+## configuration for pre-production staging
+[staging]
+## Database DSN URL.
+#database_url="mysql://test:test@localhost/pushbox"
+## used by FxA OAuth token authorization.
+#fxa_host="oauth.stage.mozaws.net"
+## set "dryrun" to "true" to skip ANY authorization checks.
+#dryrun=false
+## used by the FXA Server key authorization
+#server_token="Correct_Horse_Battery_Staple_1"
+
+## configuration for production rollout
 [production]
+## Database DSN URL.
+#database_url="mysql://test:test@localhost/pushbox"
+## used by FxA OAuth token authorization.
+#fxa_host="oauth.stage.mozaws.net"
+## set "dryrun" to "true" to skip ANY authorization checks.
+#dryrun=false
+## used by the FXA Server key authorization
+#server_token="Correct_Horse_Battery_Staple_1"
 
 [global.limits]
+# Maximum accepted data size for JSON payloads.
 json = 1048576
