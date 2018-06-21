@@ -29,7 +29,8 @@ pub fn run_embedded_migrations(config: &Config) -> Result<()> {
         .map_err(|_| err_msg("Invalid or undefined ROCKET_DATABASE_URL"))?
         .to_string();
     let conn = MysqlConnection::establish(&database_url)?;
-    Ok(embedded_migrations::run(&conn)?)
+    embedded_migrations::run(&conn)?;
+    Ok(())
 }
 
 /// Generate a pool of MySQL handlers from the Rocket.toml configuration file.

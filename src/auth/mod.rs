@@ -102,7 +102,7 @@ impl FxAAuthenticator {
                 slog_crit!(logger.log, "Reqwest failure"; "err" => format!("{:?}", err));
                 return Failure((
                     VALIDATION_FAILED,
-                    HandlerErrorKind::Unauthorized(format!("Client error {:?}", err)).into(),
+                    HandlerErrorKind::ServiceErrorFxA(format!("{}", err)).into(),
                 ));
             }
         };
@@ -142,27 +142,28 @@ impl FxAAuthenticator {
             let mut raw_resp = match client.post(&fxa_url).json(&body).send() {
                 Ok(response) => response,
                 Err(err) => {
+                    slog_error!(logger.log, "Post to FxA returned unexpected error: {}", err);
                     return Failure((
                         VALIDATION_FAILED,
-                        HandlerErrorKind::Unauthorized(format!("Pushbox Server Error: {:?}", err))
-                            .into(),
-                    ))
+                        HandlerErrorKind::ServiceErrorFxA(format!("{}", err))
+                            .into()),
+                    )
                 }
             };
             if !raw_resp.status().is_success() {
                 // Log validation fail
                 return Failure((
                     VALIDATION_FAILED,
-                    HandlerErrorKind::Unauthorized("Missing Authorization Header".to_string())
-                        .into(),
+                    HandlerErrorKind::UnauthorizedNoHeader.into(),
                 ));
             };
             match raw_resp.json() {
                 Ok(val) => val,
-                Err(e) => {
+                Err(err) => {
+                    slog_error!(logger.log, "Response from FxA returned unexpected error: {}", err);
                     return Failure((
                         VALIDATION_FAILED,
-                        HandlerErrorKind::Unauthorized(format!("FxA Server error: {:?}", e)).into(),
+                        HandlerErrorKind::ServiceErrorFxA(format!("{}", err)).into(),
                     ))
                 }
             }
@@ -188,7 +189,7 @@ impl FxAAuthenticator {
         } else {
             Failure((
                 VALIDATION_FAILED,
-                HandlerErrorKind::Unauthorized("Invalid Authorization token".to_string()).into(),
+                HandlerErrorKind::UnauthorizedBadToken.into(),
             ))
         }
     }
@@ -222,9 +223,7 @@ impl<'a, 'r> FromRequest<'a, 'r> for FxAAuthenticator {
                 slog_debug!(logger.log, "Server token missing elements"; "token" => &auth_header);
                 return Failure((
                     VALIDATION_FAILED,
-                    HandlerErrorKind::InvalidAuth(
-                        "Incorrect Authorization Header Token".to_string(),
-                    ).into(),
+                    HandlerErrorKind::InvalidAuthBadToken.into(),
                 ));
             };
             match auth_bits[0].to_lowercase().as_str() {
@@ -237,9 +236,7 @@ impl<'a, 'r> FromRequest<'a, 'r> for FxAAuthenticator {
                     slog_debug!(logger.log, "Found Server token");
                     return Failure((
                         VALIDATION_FAILED,
-                        HandlerErrorKind::InvalidAuth(
-                            "Incorrect Authorization Header Schema".to_string(),
-                        ).into(),
+                        HandlerErrorKind::InvalidAuthBadSchema.into(),
                     ));
                 }
             }
