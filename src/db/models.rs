@@ -69,7 +69,7 @@ impl DatabaseManager {
             .order(pushboxv1::idx.desc())
             .first::<i64>(conn)
             .optional()
-            .context(HandlerErrorKind::DBError)?
+            .context(HandlerErrorKind::ServiceErrorDB)?
             .unwrap_or(0);
         Ok(max_index as u64)
     }
@@ -96,7 +96,7 @@ impl DatabaseManager {
                     .select(pushboxv1::idx)
                     .order(pushboxv1::idx.desc())
                     .first::<i64>(conn)
-            }).context(HandlerErrorKind::DBError)?;
+            }).context(HandlerErrorKind::ServiceErrorDB)?;
         Ok(record_index as u64)
     }
 
@@ -131,7 +131,7 @@ impl DatabaseManager {
         Ok(query
             .order(pushboxv1::idx)
             .load::<Record>(conn)
-            .context(HandlerErrorKind::DBError)?
+            .context(HandlerErrorKind::ServiceErrorDB)?
             .into_iter()
             .collect())
     }
@@ -142,7 +142,7 @@ impl DatabaseManager {
         if !device_id.is_empty() {
             query = query.filter(pushboxv1::device_id.eq(device_id));
         }
-        query.execute(conn).context(HandlerErrorKind::DBError)?;
+        query.execute(conn).context(HandlerErrorKind::ServiceErrorDB)?;
         Ok(())
     }
 }

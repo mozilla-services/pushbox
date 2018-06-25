@@ -3,10 +3,8 @@ sudo: false
 cache: cargo
 
 rust:
-  #- nightly
-  # Override because diesel is broken under current nightly
   # Make sure this matches in Dockerfile
-  - nightly
+  - nightly-2018-06-19
 env:
   global:
     # XXX: begin_test_transaction doesn't play nice over threaded tests

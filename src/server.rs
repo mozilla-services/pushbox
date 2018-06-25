@@ -1,5 +1,6 @@
 //! Handle incoming HTTP requests.
-
+#![allow(unknown_lints)]
+#![allow(needless_pass_by_value,print_literal)]
 use std::cmp;
 use std::str::Utf8Error;
 use std::{thread, time};
@@ -138,7 +139,7 @@ impl Server {
 pub fn check_token(
     config: &ServerConfig,
     method: Method,
-    device_id: &String,
+    device_id: &str,
     token: &HandlerResult<FxAAuthenticator>,
 ) -> Result<bool, HandlerError> {
     match token {
@@ -146,7 +147,7 @@ pub fn check_token(
             AuthType::FxAServer => check_server_token(config, method, device_id, token),
             AuthType::FxAOauth => check_fxa_token(config, method, device_id, token),
         },
-        Err(_e) => Err(HandlerErrorKind::Unauthorized(String::from("Token invalid")).into()),
+        Err(_e) => Err(HandlerErrorKind::UnauthorizedBadToken.into()),
     }
 }
 
@@ -158,7 +159,7 @@ pub fn check_token(
 pub fn check_server_token(
     _config: &ServerConfig,
     _method: Method,
-    _device_id: &String,
+    _device_id: &str,
     _token: &FxAAuthenticator,
 ) -> Result<bool, HandlerError> {
     // currently a stub for the FxA server token auth.
@@ -174,7 +175,7 @@ pub fn check_server_token(
 pub fn check_fxa_token(
     config: &ServerConfig,
     method: Method,
-    device_id: &String,
+    device_id: &str,
     token: &FxAAuthenticator,
 ) -> Result<bool, HandlerError> {
     // call unwrap here because we already checked for instances.
@@ -212,7 +213,7 @@ pub fn check_fxa_token(
         }
         _ => {}
     }
-    Err(HandlerErrorKind::Unauthorized("Access Token Unauthorized".to_string()).into())
+    Err(HandlerErrorKind::UnauthorizedBadToken.into())
 }
 
 /// ## GET method handler (with options)
@@ -237,7 +238,7 @@ fn read_opt(
     let max_index = DatabaseManager::max_index(&conn, &user_id, &device_id)?;
     let mut index = options.index;
     let mut limit = options.limit;
-    match options.status.unwrap_or("".into()).to_lowercase().as_str() {
+    match options.status.unwrap_or_else(|| String::from("")).to_lowercase().as_str() {
         "new" => {
             // New entry, needs all data
             index = None;

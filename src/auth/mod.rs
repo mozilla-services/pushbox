@@ -78,7 +78,7 @@ impl FxAAuthenticator {
     fn from_fxa_oauth(
         token: String,
         config: &ServerConfig,
-        logger: &RBLogger,
+        logger: &RBLogger
     ) -> request::Outcome<Self, HandlerError> {
         // Get the scopes from the verify server.
         let fxa_host = &config.fxa_host;
@@ -102,7 +102,7 @@ impl FxAAuthenticator {
                 slog_crit!(logger.log, "Reqwest failure"; "err" => format!("{:?}", err));
                 return Failure((
                     VALIDATION_FAILED,
-                    HandlerErrorKind::Unauthorized(format!("Client error {:?}", err)).into(),
+                    HandlerErrorKind::ServiceErrorFxA(format!("{}", err)).into(),
                 ));
             }
         };
@@ -142,27 +142,33 @@ impl FxAAuthenticator {
             let mut raw_resp = match client.post(&fxa_url).json(&body).send() {
                 Ok(response) => response,
                 Err(err) => {
+                    slog_error!(logger.log, "Post to FxA returned unexpected error: {}", err);
                     return Failure((
                         VALIDATION_FAILED,
-                        HandlerErrorKind::Unauthorized(format!("Pushbox Server Error: {:?}", err))
-                            .into(),
-                    ))
+                        HandlerErrorKind::ServiceErrorFxA(format!("{}", err))
+                            .into()),
+                    )
                 }
             };
             if !raw_resp.status().is_success() {
                 // Log validation fail
+                let err = HandlerErrorKind::UnauthorizedNoHeader;
+                slog_warn!(logger.log, "{}", &err; 
+                    "code" => err.http_status().code, 
+                    "errno" => err.errno()
+                );
                 return Failure((
                     VALIDATION_FAILED,
-                    HandlerErrorKind::Unauthorized("Missing Authorization Header".to_string())
-                        .into(),
+                    err.into(),
                 ));
             };
             match raw_resp.json() {
                 Ok(val) => val,
-                Err(e) => {
+                Err(err) => {
+                    slog_error!(logger.log, "Response from FxA returned unexpected error: {}", err);
                     return Failure((
                         VALIDATION_FAILED,
-                        HandlerErrorKind::Unauthorized(format!("FxA Server error: {:?}", e)).into(),
+                        HandlerErrorKind::ServiceErrorFxA(format!("{}", err)).into(),
                     ))
                 }
             }
@@ -179,6 +185,7 @@ impl FxAAuthenticator {
     fn from_server_token(
         token: String,
         config: &ServerConfig,
+        logger: &RBLogger,
     ) -> request::Outcome<Self, HandlerError> {
         if config.server_token == Some(token) {
             Success(FxAAuthenticator {
@@ -186,9 +193,14 @@ impl FxAAuthenticator {
                 scope: Vec::new(),
             })
         } else {
+            let err = HandlerErrorKind::UnauthorizedBadToken;
+                slog_warn!(logger.log, "{}", &err; 
+                    "code" => err.http_status().code, 
+                    "errno" => err.errno()
+                );
             Failure((
                 VALIDATION_FAILED,
-                HandlerErrorKind::Unauthorized("Invalid Authorization token".to_string()).into(),
+                HandlerErrorKind::UnauthorizedBadToken.into(),
             ))
         }
     }
@@ -219,12 +231,15 @@ impl<'a, 'r> FromRequest<'a, 'r> for FxAAuthenticator {
             let auth_bits: Vec<&str> = auth_header.splitn(2, ' ').collect();
             slog_debug!(logger.log, "Checking auth token");
             if auth_bits.len() != 2 {
+                let err = HandlerErrorKind::InvalidAuthBadToken;
                 slog_debug!(logger.log, "Server token missing elements"; "token" => &auth_header);
+                slog_warn!(logger.log, "{}", &err; 
+                    "code" => err.http_status().code, 
+                    "errno" => err.errno(),
+                );
                 return Failure((
                     VALIDATION_FAILED,
-                    HandlerErrorKind::InvalidAuth(
-                        "Incorrect Authorization Header Token".to_string(),
-                    ).into(),
+                    err.into(),
                 ));
             };
             match auth_bits[0].to_lowercase().as_str() {
@@ -232,21 +247,31 @@ impl<'a, 'r> FromRequest<'a, 'r> for FxAAuthenticator {
                     slog_debug!(logger.log, "Found Oauth token");
                     return Self::from_fxa_oauth(auth_bits[1].into(), config, logger);
                 }
-                "fxa-server-key" => return Self::from_server_token(auth_bits[1].into(), config),
+                "fxa-server-key" => {
+                    slog_debug!(logger.log, "Found Server Token");
+                    return Self::from_server_token(auth_bits[1].into(), config, logger);
+                },
                 _ => {
-                    slog_debug!(logger.log, "Found Server token");
+                    let err = HandlerErrorKind::InvalidAuthBadSchema;
+                    slog_warn!(logger.log, "{}", &err; 
+                        "code" => err.http_status().code, 
+                        "errno" => err.errno(),
+                    );
                     return Failure((
                         VALIDATION_FAILED,
-                        HandlerErrorKind::InvalidAuth(
-                            "Incorrect Authorization Header Schema".to_string(),
-                        ).into(),
+                        err.into(),
                     ));
                 }
             }
         } else {
             // No Authorization header
             slog_info!(logger.log, "No Authorization Header found");
-            return Failure((VALIDATION_FAILED, HandlerErrorKind::MissingAuth.into()));
+            let err = HandlerErrorKind::MissingAuth;
+                slog_warn!(logger.log, "{}", &err; 
+                    "code" => err.http_status().code, 
+                    "errno" => err.errno()
+                );
+            return Failure((VALIDATION_FAILED, err.into()));
         }
     }
 }

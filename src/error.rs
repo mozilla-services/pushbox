@@ -33,15 +33,21 @@ pub enum HandlerErrorKind {
     /// 401 Unauthorized
     #[fail(display = "Missing authorization header")]
     MissingAuth,
-    #[fail(display = "Invalid authorization header: {:?}", _0)]
-    InvalidAuth(String),
-    #[fail(display = "Unauthorized: {:?}", _0)]
-    Unauthorized(String),
+    #[fail(display = "Invalid authorization header: Incorrect Authorization Header Token")]
+    InvalidAuthBadToken,
+    #[fail(display = "Invalid authorization header: Incorrect Authorization Schema")]
+    InvalidAuthBadSchema,
+    #[fail(display = "Unauthorized: Invalid Authorization token")]
+    UnauthorizedBadToken,
+    #[fail(display = "Unauthorized: Missing Authorization Header")]
+    UnauthorizedNoHeader,
+    #[fail(display = "Unauthorized: FxA Error: {:?}", _0)]
+    ServiceErrorFxA(String),
     // 404 Not Found
     //#[fail(display = "Not Found")]
     //NotFound,
     #[fail(display = "A database error occurred")]
-    DBError,
+    ServiceErrorDB,
     // Note: Make sure that if display has an argument, the label includes the argument,
     // otherwise the process macro parser will fail on `derive(Fail)`
     //#[fail(display = "Unexpected rocket error: {:?}", _0)]
@@ -52,12 +58,24 @@ pub enum HandlerErrorKind {
 impl HandlerErrorKind {
     /// Return a rocket response Status to be rendered for an error
     pub fn http_status(&self) -> Status {
-        match *self {
-            HandlerErrorKind::MissingAuth => Status::Unauthorized,
-            HandlerErrorKind::InvalidAuth(ref _msg) => Status::Unauthorized,
-            HandlerErrorKind::Unauthorized(ref _msg) => Status::Unauthorized,
+        match self {
             // HandlerErrorKind::NotFound => Status::NotFound,
-            HandlerErrorKind::DBError => Status::ServiceUnavailable,
+            HandlerErrorKind::ServiceErrorDB => Status::ServiceUnavailable,
+            HandlerErrorKind::ServiceErrorFxA(_) => Status::BadGateway,
+            _ => Status::Unauthorized
+        }
+    }
+
+    /// Return a unique errno code
+    pub fn errno(&self) -> i32 {
+        match self {
+            HandlerErrorKind::MissingAuth => 100,
+            HandlerErrorKind::InvalidAuthBadToken => 201,
+            HandlerErrorKind::InvalidAuthBadSchema => 202,
+            HandlerErrorKind::UnauthorizedBadToken => 400,
+            HandlerErrorKind::UnauthorizedNoHeader => 401,
+            HandlerErrorKind::ServiceErrorDB => 501,
+            HandlerErrorKind::ServiceErrorFxA(_) => 510
         }
     }
 }
@@ -102,9 +120,9 @@ impl<'r> Responder<'r> for HandlerError {
         let status = self.kind().http_status();
         let json = Json(json!({
             "code": status.code,
+            "errno": self.kind().errno(),
             "error": format!("{}", self)
         }));
-        // XXX: logging
         Response::build_from(json.respond_to(request)?)
             .status(status)
             .ok()
