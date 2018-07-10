@@ -2,14 +2,16 @@
 #![allow(unknown_lints)]
 #![allow(needless_pass_by_value,print_literal)]
 use std::cmp;
+use std::collections::HashMap;
 use std::str::Utf8Error;
 use std::{thread, time};
 
-use rocket;
+use rocket::{self, Request};
 use rocket::config;
 use rocket::fairing::AdHoc;
 use rocket::http::Method;
-use rocket::request::{FormItems, FromForm};
+use rocket::Outcome::Success;
+use rocket::request::{self, FormItems, FromForm, FromRequest};
 use rocket_contrib::json::Json;
 
 use auth::{AuthType, FxAAuthenticator};
@@ -76,6 +78,25 @@ impl<'f> FromForm<'f> for Options {
             }
         }
         Ok(opt)
+    }
+}
+
+// Collect header info.Request
+pub struct HeaderInfo {
+    headers: HashMap<String, Option<String>>
+}
+
+impl<'a, 'r> FromRequest<'a, 'r> for HeaderInfo {
+    type Error = HandlerError;
+
+    fn from_request(request: &'a Request<'r>) -> request::Outcome<Self, HandlerError> {
+        let mut headers:HashMap<String, Option<String>> = HashMap::new();
+        headers.insert("request_id".to_owned(),
+            request
+            .headers().get_one("FxA-Request-Id")
+            .or_else(|| request.headers().get_one("X-Request-Id"))
+            .map(|r| r.to_owned()));
+        Success(HeaderInfo{headers})
     }
 }
 
@@ -224,6 +245,7 @@ fn read_opt(
     conn: Conn,
     config: ServerConfig,
     logger: RBLogger,
+    headers: HeaderInfo,
     token: HandlerResult<FxAAuthenticator>,
     user_id: String,
     device_id: String,
@@ -233,7 +255,12 @@ fn read_opt(
     // Validate::from_request extracts the token from the Authorization header, validates it
     // against FxA and the method, and either returns OK or an error. We need to reraise it to the
     // handler.
-    slog_debug!(logger.log, "Handling Read"; "user_id" => &user_id, "device_id" => &device_id);
+    let request_id = headers.headers.get("request_id");
+    slog_debug!(logger.log, "Handling Read"; 
+        "user_id" => &user_id, 
+        "device_id" => &device_id,
+        "request_id" => &request_id,
+        );
     check_token(&config, Method::Get, &device_id, &token)?;
     let max_index = DatabaseManager::max_index(&conn, &user_id, &device_id)?;
     let mut index = options.index;
@@ -243,13 +270,19 @@ fn read_opt(
             // New entry, needs all data
             index = None;
             limit = None;
-            slog_debug!(logger.log, "Welcome new user"; "user_id" => &user_id);
+            slog_debug!(logger.log, "Welcome new user"; 
+                "user_id" => &user_id,
+                "request_id" => &request_id
+                );
         }
         "lost" => {
             // Just lost, needs just the next index.
             index = None;
             limit = Some(0);
-            slog_debug!(logger.log, "Sorry, you're lost"; "user_id" => &user_id);
+            slog_debug!(logger.log, "Sorry, you're lost"; 
+                "user_id" => &user_id,
+                "request_id" => &request_id
+                );
         }
         _ => {}
     };
@@ -259,7 +292,11 @@ fn read_opt(
     for message in &messages {
         msg_max = cmp::max(msg_max, message.idx as u64);
     }
-    slog_debug!(logger.log, "Found messages"; "len" => messages.len(), "user_id" => &user_id);
+    slog_debug!(logger.log, "Found messages"; 
+        "len" => messages.len(), 
+        "user_id" => &user_id,
+        "request_id" => &request_id
+        );
     // returns json {"status":200, "index": max_index, "messages":[{"index": #, "data": String}, ...]}
     let is_last = match limit {
         None => true,
@@ -273,6 +310,7 @@ fn read_opt(
         "last": is_last,
         "index": msg_max,
         "status": 200,
+        "request_id": request_id,
         "messages": messages
     })))
 }
@@ -286,6 +324,7 @@ fn read(
     conn: Conn,
     config: ServerConfig,
     logger: RBLogger,
+    headers: HeaderInfo,
     token: HandlerResult<FxAAuthenticator>,
     user_id: String,
     device_id: String,
@@ -294,6 +333,7 @@ fn read(
         conn,
         config,
         logger,
+        headers,
         token,
         user_id,
         device_id,
@@ -317,11 +357,13 @@ fn write(
     conn: Conn,
     config: ServerConfig,
     logger: RBLogger,
+    headers: HeaderInfo,
     token: HandlerResult<FxAAuthenticator>,
     user_id: String,
     device_id: String,
     data: Json<DataRecord>,
 ) -> HandlerResult<Json> {
+    let request_id = headers.headers.get("request_id");
     check_token(&config, Method::Post, &device_id, &token)?;
     if config
         .test_data
@@ -335,9 +377,14 @@ fn write(
         return Ok(Json(json!({
             "status": 200,
             "index": -1,
+            "request_id": &request_id
         })));
     }
-    slog_debug!(logger.log, "Writing new record:"; "user_id" => &user_id, "device_id" => &device_id);
+    slog_debug!(logger.log, "Writing new record:"; 
+        "user_id" => &user_id, 
+        "device_id" => &device_id,
+        "request_id" => &request_id
+        );
     let response = DatabaseManager::new_record(
         &conn,
         &user_id,
@@ -352,6 +399,7 @@ fn write(
     Ok(Json(json!({
         "status": 200,
         "index": response.unwrap(),
+        "request_id": request_id,
     })))
 }
 
@@ -422,12 +470,14 @@ mod test {
     struct WriteResp {
         index: u64,
         status: u32,
+        request_id: Option<String>,
     }
 
     #[derive(Debug, Deserialize)]
     struct Msg {
         index: u64,
         data: String,
+        request_id: Option<String>,
     }
 
     #[derive(Debug, Deserialize)]
@@ -435,6 +485,7 @@ mod test {
         status: u32,
         index: u64,
         last: bool,
+        request_id: Option<String>,
         messages: Vec<Msg>,
     }
 
@@ -500,18 +551,21 @@ mod test {
             .post(url.clone())
             .header(Header::new("Authorization", "bearer token"))
             .header(Header::new("Content-Type", "application/json"))
+            .header(Header::new("X-Request-Id", "foobar123"))
             .body(r#"{"ttl": 60, "data":"Some Data"}"#)
             .dispatch();
         let body = &result.body_string().unwrap();
         assert!(result.status() == rocket::http::Status::raw(200));
         assert!(body.contains(r#""index":"#));
         assert!(body.contains(r#""status":200"#));
+        assert!(body.contains(r#""request_id":"foobar123""#));
 
         // cleanup
         client
             .delete(url.clone())
             .header(Header::new("Authorization", "bearer token"))
             .header(Header::new("Content-Type", "application/json"))
+            .header(Header::new("FxA-Request-Id", "foobar123"))
             .dispatch();
     }
 
@@ -524,6 +578,7 @@ mod test {
             .post(url.clone())
             .header(Header::new("Authorization", "bearer token"))
             .header(Header::new("Content-Type", "application/json"))
+            .header(Header::new("FxA-Request-Id", "foobar123"))
             .body(r#"{"ttl": 60, "data":"Some Data"}"#)
             .dispatch();
         let write_json: WriteResp = serde_json::from_str(
@@ -535,6 +590,7 @@ mod test {
             .get(url.clone())
             .header(Header::new("Authorization", "bearer token"))
             .header(Header::new("Content-Type", "application/json"))
+            .header(Header::new("FxA-Request-Id", "foobar123"))
             .dispatch();
         assert!(read_result.status() == rocket::http::Status::raw(200));
         let mut read_json: ReadResp = serde_json::from_str(
@@ -544,6 +600,7 @@ mod test {
         ).expect("Could not parse read response");
 
         assert!(read_json.status == 200);
+        assert!(read_json.request_id == Some("foobar123".to_owned()));
         assert!(read_json.messages.len() > 0);
         // a MySql race condition can cause this to fail.
         assert!(write_json.index <= read_json.index);
@@ -553,6 +610,7 @@ mod test {
             .get(format!("{}?index={}&limit=1", url, write_json.index))
             .header(Header::new("Authorization", "bearer token"))
             .header(Header::new("Content-Type", "application/json"))
+            .header(Header::new("FxA-Request-Id", "foobar123"))
             .dispatch();
 
         read_json = serde_json::from_str(
@@ -561,6 +619,7 @@ mod test {
                 .expect("Empty body for read query"),
         ).expect("Could not parse read query body");
         assert!(read_json.status == 200);
+        assert!(read_json.request_id == Some("foobar123".to_owned()));
         assert!(read_json.messages.len() == 1);
         // a MySql race condition can cause these to fail.
         assert!(&read_json.index == &write_json.index);
@@ -572,6 +631,7 @@ mod test {
             .get(empty_url)
             .header(Header::new("Authorization", "bearer token"))
             .header(Header::new("Content-Type", "application/json"))
+            .header(Header::new("FxA-Request-Id", "foobar123"))
             .dispatch();
         read_json = serde_json::from_str(
             &read_result
@@ -580,12 +640,14 @@ mod test {
         ).expect("Could not parse read query body");
         assert!(read_json.status == 200);
         assert!(read_json.messages.len() == 0);
+        assert!(read_json.request_id == Some("foobar123".to_owned()));
 
         // cleanup
         client
             .delete(url.clone())
             .header(Header::new("Authorization", "bearer token"))
             .header(Header::new("Content-Type", "application/json"))
+            .header(Header::new("FxA-Request-Id", "foobar123"))
             .dispatch();
     }
 
@@ -599,12 +661,14 @@ mod test {
             .post(url.clone())
             .header(Header::new("Authorization", "bearer token"))
             .header(Header::new("Content-Type", "application/json"))
+            .header(Header::new("FxA-Request-Id", "foobar123"))
             .body(r#"{"ttl": 60, "data":"Some Data"}"#)
             .dispatch();
         let mut del_result = client
             .delete(url.clone())
             .header(Header::new("Authorization", "bearer token"))
             .header(Header::new("Content-Type", "application/json"))
+            .header(Header::new("FxA-Request-Id", "foobar123"))
             .dispatch();
         assert!(del_result.status() == rocket::http::Status::raw(200));
         let mut res_str = del_result.body_string().expect("Empty delete body string");
@@ -613,6 +677,7 @@ mod test {
             .get(url.clone())
             .header(Header::new("Authorization", "bearer token"))
             .header(Header::new("Content-Type", "application/json"))
+            .header(Header::new("FxA-Request-Id", "foobar123"))
             .dispatch();
         assert!(read_result.status() == rocket::http::Status::raw(200));
         res_str = read_result.body_string().expect("Empty read body string");
@@ -624,6 +689,7 @@ mod test {
             .delete(format!("/v1/store/{}", user_id))
             .header(Header::new("Authorization", "bearer token"))
             .header(Header::new("Content-Type", "application/json"))
+            .header(Header::new("FxA-Request-Id", "foobar123"))
             .dispatch();
         assert!(read_result.status() == rocket::http::Status::raw(200));
         assert!(del_result.body_string() == None);
@@ -632,6 +698,7 @@ mod test {
             .get(url.clone())
             .header(Header::new("Authorization", "bearer token"))
             .header(Header::new("Content-Type", "application/json"))
+            .header(Header::new("FxA-Request-Id", "foobar123"))
             .dispatch();
         assert!(read_result.status() == rocket::http::Status::raw(200));
         read_json = serde_json::from_str(
@@ -642,5 +709,4 @@ mod test {
         assert!(read_json.messages.len() == 0);
     }
 
-    // TODO: add tests for servertoken checks.
 }

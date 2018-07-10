@@ -4,7 +4,7 @@ name = "pushbox"
 version = "0.1.0"
 [dependencies]
 failure = "0.1.1"
-futures = "0.2.1"
+futures = "0.1.21"
 mysql = "13.1.0"
 rand = "0.5.0"
 reqwest = "0.8.6"
