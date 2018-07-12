@@ -2,6 +2,7 @@
 #![allow(unknown_lints)]
 #![allow(needless_pass_by_value,print_literal)]
 use std::cmp;
+use std::error::Error as StdError;
 use std::collections::HashMap;
 use std::str::Utf8Error;
 use std::{thread, time};
@@ -9,9 +10,10 @@ use std::{thread, time};
 use rocket::{self, Request};
 use rocket::config;
 use rocket::fairing::AdHoc;
-use rocket::http::Method;
+use rocket::http::{Method, Status};
 use rocket::Outcome::Success;
 use rocket::request::{self, FormItems, FromForm, FromRequest};
+use rocket::response::{content, status};
 use rocket_contrib::json::Json;
 
 use auth::{AuthType, FxAAuthenticator};
@@ -152,7 +154,7 @@ impl Server {
                 "/v1/store",
                 routes![read, read_opt, write, delete, delete_user],
             )
-            .mount("/v1/", routes![status]))
+            .mount("/", routes![version, heartbeat, lbheartbeat]))
     }
 }
 
@@ -256,8 +258,8 @@ fn read_opt(
     // against FxA and the method, and either returns OK or an error. We need to reraise it to the
     // handler.
     let request_id = headers.headers.get("request_id");
-    slog_debug!(logger.log, "Handling Read"; 
-        "user_id" => &user_id, 
+    slog_debug!(logger.log, "Handling Read";
+        "user_id" => &user_id,
         "device_id" => &device_id,
         "request_id" => &request_id,
         );
@@ -270,7 +272,7 @@ fn read_opt(
             // New entry, needs all data
             index = None;
             limit = None;
-            slog_debug!(logger.log, "Welcome new user"; 
+            slog_debug!(logger.log, "Welcome new user";
                 "user_id" => &user_id,
                 "request_id" => &request_id
                 );
@@ -279,7 +281,7 @@ fn read_opt(
             // Just lost, needs just the next index.
             index = None;
             limit = Some(0);
-            slog_debug!(logger.log, "Sorry, you're lost"; 
+            slog_debug!(logger.log, "Sorry, you're lost";
                 "user_id" => &user_id,
                 "request_id" => &request_id
                 );
@@ -292,8 +294,8 @@ fn read_opt(
     for message in &messages {
         msg_max = cmp::max(msg_max, message.idx as u64);
     }
-    slog_debug!(logger.log, "Found messages"; 
-        "len" => messages.len(), 
+    slog_debug!(logger.log, "Found messages";
+        "len" => messages.len(),
         "user_id" => &user_id,
         "request_id" => &request_id
         );
@@ -380,8 +382,8 @@ fn write(
             "request_id": &request_id
         })));
     }
-    slog_debug!(logger.log, "Writing new record:"; 
-        "user_id" => &user_id, 
+    slog_debug!(logger.log, "Writing new record:";
+        "user_id" => &user_id,
         "device_id" => &device_id,
         "request_id" => &request_id
         );
@@ -437,20 +439,33 @@ fn delete_user(
     Ok(Json(json!({})))
 }
 
-/// ## GET status/heartbeat
-///
-/// Process a `GET /status` request returning a heartbeat `200 Ok` response if all
-/// is well
-#[get("/status")]
-fn status(config: ServerConfig) -> HandlerResult<Json> {
-    let config = config;
-    // TODO: check the database.
-
-    Ok(Json(json!({
-        "status": "Ok",
-        "fxa_auth": config.fxa_host.clone(),
-    })))
+/// ## GET Dockerflow checks
+#[get("/__version__")]
+fn version() -> content::Json<&'static str> {
+    content::Json(include_str!("../version.json"))
 }
+
+#[get("/__heartbeat__")]
+fn heartbeat(conn: Conn, config: ServerConfig) -> status::Custom<Json> {
+    let (status, db_msg) = match db::health_check(&*conn) {
+        Ok(_) => (Status::Ok, "ok".to_owned()),
+        Err(e) => (Status::ServiceUnavailable, e.description().to_owned()),
+    };
+    // XXX: maybe add a health check for SQS
+
+    status::Custom(
+        status,
+        Json(json!({
+            "status": if status == Status::Ok { "ok" } else { "error" },
+            "code": status.code,
+            "fxa_auth": config.fxa_host,
+            "database": db_msg,
+        })),
+    )
+}
+
+#[get("/__lbheartbeat__")]
+fn lbheartbeat() {}
 
 #[cfg(test)]
 mod test {
@@ -461,7 +476,7 @@ mod test {
     use rocket::config::{Config, Environment, RocketConfig, Table};
     use rocket::http::Header;
     use rocket::local::Client;
-    use serde_json;
+    use serde_json::{self, Value};
 
     use super::Server;
     use auth::FxAAuthenticator;
@@ -709,4 +724,38 @@ mod test {
         assert!(read_json.messages.len() == 0);
     }
 
+    #[test]
+    fn test_version() {
+        let config = rocket_config(default_config_data());
+        let client = rocket_client(config);
+        let mut response = client.get("/__version__").dispatch();
+        assert_eq!(response.status(), rocket::http::Status::Ok);
+        let result: Value = serde_json::from_str(
+            &response.body_string().expect("Empty body for read query"),
+        ).expect("Could not parse read query body");
+        assert_eq!(result["version"], "TBD");
+    }
+
+    #[test]
+    fn test_heartbeat() {
+        let config = rocket_config(default_config_data());
+        let client = rocket_client(config);
+        let mut response = client.get("/__heartbeat__").dispatch();
+        assert_eq!(response.status(), rocket::http::Status::Ok);
+        let result: Value = serde_json::from_str(
+            &response.body_string().expect("Empty body for read query"),
+        ).expect("Could not parse read query body");
+        assert_eq!(result["code"], 200);
+        assert_eq!(result["fxa_auth"], "oauth.stage.mozaws.net");
+        assert_eq!(result["database"], "ok");
+    }
+
+    #[test]
+    fn test_lbheartbeat() {
+        let config = rocket_config(default_config_data());
+        let client = rocket_client(config);
+        let mut response = client.get("/__lbheartbeat__").dispatch();
+        assert_eq!(response.status(), rocket::http::Status::Ok);
+        assert!(response.body().is_none());
+    }
 }

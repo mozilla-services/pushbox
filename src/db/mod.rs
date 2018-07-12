@@ -3,16 +3,20 @@ pub mod models;
 pub mod schema;
 
 use std::ops::Deref;
+use std::result::Result as StdResult;
 
 use diesel::mysql::MysqlConnection;
 use diesel::r2d2::{ConnectionManager, Pool, PooledConnection};
-use diesel::Connection;
+use diesel::{
+    dsl::sql, result::Error as DieselError, sql_types::Integer, Connection, QueryDsl, RunQueryDsl,
+};
 use failure::err_msg;
 
 use rocket::http::Status;
 use rocket::request::{self, FromRequest};
 use rocket::{Config, Outcome, Request, State};
 
+use self::schema::pushboxv1;
 use error::Result;
 
 pub type MysqlPool = Pool<ConnectionManager<MysqlConnection>>;
@@ -47,6 +51,17 @@ pub fn pool_from_config(config: &Config) -> Result<MysqlPool> {
     let manager = ConnectionManager::<MysqlConnection>::new(database_url);
     let pman = Pool::builder().max_size(max_size).build(manager)?;
     Ok(pman)
+}
+
+/// Determine if the database is healthy returning a DieselError otherwise
+pub fn health_check(conn: &MysqlConnection) -> StdResult<(), DieselError> {
+    match pushboxv1::table
+        .select(sql::<Integer>("1"))
+        .get_result::<i32>(conn)
+    {
+        Ok(_) | Err(DieselError::NotFound) => Ok(()),
+        Err(e) => Err(e),
+    }
 }
 
 /// An [r2d2.mysql] connection object
