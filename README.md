@@ -142,11 +142,24 @@ Delete all records for a given user or just a given user's device.
 This call returns just an empty object.
 
 
-## GET /v1/store/status
+## GET /__heartbeat__
 
 Return the status of the server.
 
 This call is only used for server status checks.
+
+
+## GET /__lbheartbeat__
+
+Return a light weight status check (200 OK).
+
+This call is only used for the Load Balancer's check.
+
+
+## GET /__version__
+
+Return a JSON response of the version information of the server.
+
 
 # Database
 
