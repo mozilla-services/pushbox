@@ -309,12 +309,11 @@ fn read_opt(
             .unwrap_or(true),
     };
     Ok(Json(json!({
-        "last": is_last,
-        "index": msg_max,
-        "status": 200,
-        "request_id": request_id,
-        "messages": messages
-    })))
+            "last": is_last,
+            "index": msg_max,
+            "status": 200,
+            "messages": messages
+        })))
 }
 
 /// ## GET method handler (without options)
@@ -379,7 +378,6 @@ fn write(
         return Ok(Json(json!({
             "status": 200,
             "index": -1,
-            "request_id": &request_id
         })));
     }
     slog_debug!(logger.log, "Writing new record:";
@@ -401,7 +399,6 @@ fn write(
     Ok(Json(json!({
         "status": 200,
         "index": response.unwrap(),
-        "request_id": request_id,
     })))
 }
 
@@ -573,7 +570,6 @@ mod test {
         assert!(result.status() == rocket::http::Status::raw(200));
         assert!(body.contains(r#""index":"#));
         assert!(body.contains(r#""status":200"#));
-        assert!(body.contains(r#""request_id":"foobar123""#));
 
         // cleanup
         client
@@ -615,7 +611,6 @@ mod test {
         ).expect("Could not parse read response");
 
         assert!(read_json.status == 200);
-        assert!(read_json.request_id == Some("foobar123".to_owned()));
         assert!(read_json.messages.len() > 0);
         // a MySql race condition can cause this to fail.
         assert!(write_json.index <= read_json.index);
@@ -634,7 +629,6 @@ mod test {
                 .expect("Empty body for read query"),
         ).expect("Could not parse read query body");
         assert!(read_json.status == 200);
-        assert!(read_json.request_id == Some("foobar123".to_owned()));
         assert!(read_json.messages.len() == 1);
         // a MySql race condition can cause these to fail.
         assert!(&read_json.index == &write_json.index);
@@ -655,7 +649,6 @@ mod test {
         ).expect("Could not parse read query body");
         assert!(read_json.status == 200);
         assert!(read_json.messages.len() == 0);
-        assert!(read_json.request_id == Some("foobar123".to_owned()));
 
         // cleanup
         client
