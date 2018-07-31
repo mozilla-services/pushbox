@@ -259,7 +259,9 @@ mod test {
         assert_eq!(event.event, "test");
     }
 
+    // Use `cargo test -- --ignored` to run this test.
     #[test]
+    #[ignore]
     fn test_fetch_delete() {
         let data = json!({"event": "delete", "uid": "test_test"});
         // create a unique queue to prevent corruption.
