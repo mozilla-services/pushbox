@@ -1,3 +1,17 @@
+<a name="0.1.1"></a>
+## 0.1.1 (2018-07-31)
+
+
+#### Bug Fixes
+
+*   strip FxA-Request-Id from the response ([ad09cdaa](https://github.com/mozilla-services/pushbox/commit/ad09cdaace7236e012af4a2fef43c199afcee342), closes [#36](https://github.com/mozilla-services/pushbox/issues/36))
+
+#### Features
+
+*   hacky support of ROCKET_LOG=off ([1c63ee3a](https://github.com/mozilla-services/pushbox/commit/1c63ee3a0242ad7f90ab6a4a2280c70dfe2ecb0e), closes [#33](https://github.com/mozilla-services/pushbox/issues/33))
+
+
+
 <a name="0.1.0"></a>
 ## 0.1.0 (2018-07-25)
 
