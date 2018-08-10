@@ -3,6 +3,7 @@
 use std::convert::TryFrom;
 use std::env;
 use std::rc::Rc;
+use std::str::FromStr;
 use std::time::Duration;
 
 use rocket::Config;
@@ -61,12 +62,15 @@ impl SyncEventQueue {
     /// Configuration Options:
     /// * **sqs_url**: AWS SWS url to fetch data from. Defaults to the dev FxA account change URL.
     pub fn from_config(config: &Config, logger: &RBLogger) -> SyncEventQueue {
-        let region = env::var("AWS_LOCAL_SQS")
-            .map(|endpoint| Region::Custom {
-                endpoint,
+
+        let env_region = env::var("AWS_LOCAL_SQS").unwrap_or_else(|_| {Region::default().name().to_owned()});
+        let region = match Region::from_str(&env_region) {
+            Ok(r) => r,
+            Err(_) => Region::Custom {
+                endpoint: env_region,
                 name: "env_var".to_string(),
-            })
-            .unwrap_or_default();
+            }
+        };
         let queue_url = config.get_str("sqs_url").unwrap_or(
             "https://sqs.us-east-1.amazonaws.com/927034868273/fxa-oauth-account-change-dev",
         );
