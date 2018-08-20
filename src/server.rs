@@ -124,14 +124,12 @@ impl Server {
         if !cfg!(test) {
             // if we're not running a test, spawn the SQS handler for account/device deletes
             thread::spawn(move || {
+                slog_debug!(sq_logger.log, "SQS Starting thread... ");
                 let sqs_handler = sqs::SyncEventQueue::from_config(&sqs_config, &sq_logger);
                 loop {
                     if let Some(event) = sqs_handler.fetch() {
                         if let Err(e) = Server::process_message(&db_pool, &event) {
                             slog_error!(sq_logger.log, "Could not process message"; "error" => e.to_string());
-                        };
-                        if let Err(e) = sqs_handler.ack_message(&event) {
-                            slog_error!(sq_logger.log, "Could not ack message"; "error" => e.to_string());
                         };
                     } else {
                         // sleep 5m

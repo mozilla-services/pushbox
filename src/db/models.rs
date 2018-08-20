@@ -3,7 +3,14 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use diesel::mysql::MysqlConnection;
 use diesel::{
-    self, insert_into, Connection, ExpressionMethods, OptionalExtension, QueryDsl, RunQueryDsl,
+    self, 
+    insert_into, 
+    Connection, 
+    ExpressionMethods, 
+    OptionalExtension, 
+    QueryDsl, 
+    RunQueryDsl, 
+    Queryable, Insertable,
 };
 use failure::ResultExt;
 use serde::ser::{Serialize, SerializeStruct, Serializer};

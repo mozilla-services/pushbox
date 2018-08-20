@@ -3,34 +3,26 @@ authors = ["jrconlin <jconlin+git@mozilla.com>"]
 name = "pushbox"
 version = "0.1.1"
 [dependencies]
-failure = "0.1.1"
-futures = "0.1.21"
-mysql = "13.1.0"
-rand = "0.5.0"
-reqwest = "0.8.6"
-rocket = "0.3.12"
-rocket_codegen = "0.3.12"
-rusoto_core = "0.32.0"
-rusoto_sqs = "0.32.0"
-serde = "1.0.64"
-serde_derive = "1.0.64"
-serde_json = "1.0.19"
-slog = "2.2.3"
+env_logger = "0.5.12"
+failure = "0.1.2"
+futures = "0.1.23"
+mysql = "14.0.0"
+rand = "0.5.5"
+reqwest = "0.8.8"
+rocket = "0.3.15"
+rocket_codegen = "0.3.15"
+rusoto_core = "0.33.1"
+rusoto_sqs = "0.33.1"
+serde = "1.0.72"
+serde_derive = "1.0.72"
+serde_json = "1.0.26"
+slog = {version="2.3.2", features=["max_level_debug", "release_max_level_debug"]}
 slog-async = "2.3.0"
 slog-json = "2.2.0"
 slog-scope = "4.0.1"
 slog-stdlog = "3.0.2"
 slog-term = "2.4.0"
 time = "0.1.40"
-
-[dependencies.diesel]
-features = ["mysql", "r2d2"]
-version = "~1.2"
-
-[dependencies.diesel_migrations]
-features = ["mysql"]
-version = "~1.2"
-
-[dependencies.rocket_contrib]
-default-features = true
-version = "0.3.12"
+diesel = {version="1.3.2",features=["mysql", "r2d2"]}
+diesel_migrations = {version = "1.3.0",features = ["mysql"]}
+rocket_contrib = {version = "0.3.15",default-features = true}
