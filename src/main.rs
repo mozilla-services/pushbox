@@ -6,7 +6,7 @@
 //! send the UA a link to data that it could fetch.
 //!
 
-#![feature(plugin, decl_macro, custom_derive, duration_extras, try_from)]
+#![feature(plugin, decl_macro, custom_derive, try_from)]
 #![plugin(rocket_codegen)]
 // #![cfg_attr(feature = "cargo-clippy", allow(new_ret_no_self))]
 

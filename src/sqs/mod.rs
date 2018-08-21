@@ -61,6 +61,7 @@ impl SyncEventQueue {
     /// Configuration Options:
     /// * **sqs_url**: AWS SWS url to fetch data from. Defaults to the dev FxA account change URL.
     pub fn from_config(config: &Config, logger: &RBLogger) -> SyncEventQueue {
+
         let region = env::var("AWS_LOCAL_SQS")
             .map(|endpoint| Region::Custom {
                 endpoint,
@@ -72,7 +73,7 @@ impl SyncEventQueue {
         );
         // Max wait_time is 20, so we'll pound away on SQS.
         SyncEventQueue {
-            sqs: Rc::new(SqsClient::simple(region)),
+            sqs: Rc::new(SqsClient::new(region)),
             url: queue_url.to_owned(),
             logger: logger.clone(),
         }
@@ -84,7 +85,8 @@ impl SyncEventQueue {
         let mut request = DeleteMessageRequest::default();
         request.queue_url = self.url.clone();
         request.receipt_handle = event.handle.clone();
-        sqs.delete_message(&request)
+        slog_debug!(self.logger.log, "SQS Acking message {:?}", request);
+        sqs.delete_message(request)
             .with_timeout(Duration::new(1, 0))
             .sync()?;
         Ok(())
@@ -97,27 +99,30 @@ impl SyncEventQueue {
         let mut request = ReceiveMessageRequest::default();
         request.queue_url = self.url.clone();
         let response = match sqs
-            .receive_message(&request)
+            .receive_message(request)
             .with_timeout(Duration::new(1, 0))
             .sync()
         {
             Ok(r) => r,
             Err(e) => {
-                slog_warn!(self.logger.log, "Error: {:?}", e);
+                slog_warn!(self.logger.log, "SQS Rec'v Error: {:?}", e);
                 return None;
             }
         };
-        slog_debug!(self.logger.log, "Got message; {:?}", response);
+        slog_debug!(self.logger.log, "SQS Got message; {:?}", response);
         if let Some(m) = response.messages {
-            slog_debug!(self.logger.log, "Messages {:?}", m);
+            slog_debug!(self.logger.log, "SQS Messages {:?}", m);
             let event = match SyncEvent::try_from(m[0].clone()) {
                 Ok(ev) => ev,
                 Err(err) => {
-                    slog_warn!(self.logger.log, "Could not understand event: {:?}", err);
+                    slog_warn!(self.logger.log, "SQS Could not understand event: {:?}", err);
                     return None;
                 }
             };
-            slog_debug!(self.logger.log, "Event: {:?}", event);
+            slog_debug!(self.logger.log, "SQS event: {:?}", event);
+            self.ack_message(&event).unwrap_or_else(|e| {
+                slog_warn!(self.logger.log, "SQS could not ack message: {:?}", e);
+            });
             if event.event.to_lowercase() == "delete"
                 || event.event.to_lowercase() == "device:delete"
             {
@@ -156,7 +161,7 @@ mod test {
             })
             .unwrap_or(Region::default());
         SyncEventQueue {
-            sqs: Rc::new(SqsClient::simple(region)),
+            sqs: Rc::new(SqsClient::new(region)),
             url: queue_url,
             logger: logger,
         }
@@ -166,7 +171,7 @@ mod test {
         let mut request = rusoto_sqs::CreateQueueRequest::default();
         request.queue_name = format!("{}_{}", queue_name, rand::random::<u8>());
         let response = queue
-            .create_queue(&request)
+            .create_queue(request)
             .with_timeout(Duration::new(1, 0))
             .sync()?;
         Ok(response.queue_url.unwrap().to_owned())
@@ -176,7 +181,7 @@ mod test {
         let mut request = rusoto_sqs::ListQueuesRequest::default();
         request.queue_name_prefix = Some(queue_name.to_string());
         let response = queue
-            .list_queues(&request)
+            .list_queues(request)
             .with_timeout(Duration::new(1, 0))
             .sync()
             .unwrap();
@@ -199,14 +204,14 @@ mod test {
                 name: "env_var".to_string(),
             })
             .unwrap_or(Region::default());
-        let queue = SqsClient::simple(region);
+        let queue = SqsClient::new(region);
         let queue_url = make_test_queue(&queue, queue_name).unwrap();
         let msg_request = rusoto_sqs::SendMessageRequest {
             message_body: data.clone(),
             queue_url: queue_url.clone(),
             ..Default::default()
         };
-        (queue_url, queue.send_message(&msg_request).sync().unwrap())
+        (queue_url, queue.send_message(msg_request).sync().unwrap())
     }
 
     fn kill_queue(queue: &SyncEventQueue, queue_url: String, count: u8) {
@@ -216,7 +221,7 @@ mod test {
         match queue
             .sqs
             .clone()
-            .delete_queue(&request)
+            .delete_queue(request)
             .with_timeout(Duration::new(1, 0))
             .sync()
         {
