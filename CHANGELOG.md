@@ -1,3 +1,15 @@
+<a name="0.1.2"></a>
+## 0.1.2 (2018-08-21)
+
+
+#### Bug Fixes
+
+*   Fix deployment SQS issue ([c3ab1dc7](https://github.com/mozilla-services/pushbox/commit/c3ab1dc77f32b555f62fcf9ade428fc3c1d35a2e), closes [#42](https://github.com/mozilla-services/pushbox/issues/42))
+*   Allow AWS_LOCAL_SQS to specify more than just custom regions. ([a51e6ef0](https://github.com/mozilla-services/pushbox/commit/a51e6ef0d2933652019a1a27050aede7e7baea7b))
+*   skip sqs mod testing on travis ([b0f3508b](https://github.com/mozilla-services/pushbox/commit/b0f3508bd9a96a3114e039478e657dbbeee00188), closes [#39](https://github.com/mozilla-services/pushbox/issues/39))
+
+
+
 <a name="0.1.1"></a>
 ## 0.1.1 (2018-07-31)
 
