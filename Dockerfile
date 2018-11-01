@@ -1,5 +1,5 @@
 # Docker 17.05 or higher required for multi-stage builds
-FROM rust:1.26.0-stretch as builder
+FROM rust:1.30.0-stretch as builder
 ADD . /app
 WORKDIR /app
 RUN \
