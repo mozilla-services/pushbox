@@ -3,14 +3,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use diesel::mysql::MysqlConnection;
 use diesel::{
-    self, 
-    insert_into, 
-    Connection, 
-    ExpressionMethods, 
-    OptionalExtension, 
-    QueryDsl, 
-    RunQueryDsl, 
-    Queryable, Insertable,
+    self, insert_into, Connection, ExpressionMethods, Insertable, OptionalExtension, QueryDsl,
+    Queryable, RunQueryDsl,
 };
 use failure::ResultExt;
 use serde::ser::{Serialize, SerializeStruct, Serializer};
@@ -89,8 +83,8 @@ impl DatabaseManager {
         data: &str,
         ttl: u64,
     ) -> HandlerResult<u64> {
-        let record_index =
-            conn.transaction(|| {
+        let record_index = conn
+            .transaction(|| {
                 insert_into(pushboxv1::table)
                     .values((
                         pushboxv1::user_id.eq(user_id),
@@ -103,7 +97,8 @@ impl DatabaseManager {
                     .select(pushboxv1::idx)
                     .order(pushboxv1::idx.desc())
                     .first::<i64>(conn)
-            }).context(HandlerErrorKind::ServiceErrorDB)?;
+            })
+            .context(HandlerErrorKind::ServiceErrorDB)?;
         Ok(record_index as u64)
     }
 
@@ -149,7 +144,9 @@ impl DatabaseManager {
         if !device_id.is_empty() {
             query = query.filter(pushboxv1::device_id.eq(device_id));
         }
-        query.execute(conn).context(HandlerErrorKind::ServiceErrorDB)?;
+        query
+            .execute(conn)
+            .context(HandlerErrorKind::ServiceErrorDB)?;
         Ok(())
     }
 }

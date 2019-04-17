@@ -1,20 +1,10 @@
 //! Handle incoming HTTP requests.
 #![allow(unknown_lints)]
-#![allow(needless_pass_by_value,print_literal)]
 use std::cmp;
-use std::error::Error as StdError;
 use std::collections::HashMap;
+use std::error::Error as StdError;
 use std::str::Utf8Error;
 use std::{thread, time};
-
-use rocket::{self, Request};
-use rocket::config;
-use rocket::fairing::AdHoc;
-use rocket::http::{Method, Status};
-use rocket::Outcome::Success;
-use rocket::request::{self, FormItems, FromForm, FromRequest};
-use rocket::response::{content, status};
-use rocket_contrib::json::Json;
 
 use auth::{AuthType, FxAAuthenticator};
 use config::ServerConfig;
@@ -23,7 +13,16 @@ use db::{self, Conn, MysqlPool};
 use error::{HandlerError, HandlerErrorKind, HandlerResult};
 use failure::Error;
 use logging::RBLogger;
+use rocket::config;
+use rocket::fairing::AdHoc;
+use rocket::http::{Method, Status};
+use rocket::request::{self, FormItems, FromForm, FromRequest};
+use rocket::response::{content, status};
+use rocket::Outcome::Success;
+use rocket::{self, Request};
+use rocket_contrib::json::{Json, JsonValue};
 use sqs::{self, SyncEvent};
+use url;
 
 /// An incoming Data Storage request.
 #[derive(Deserialize, Debug)]
@@ -65,9 +64,9 @@ impl<'f> FromForm<'f> for Options {
             status: None,
         };
 
-        for (key, val) in items {
-            let decoded = val.url_decode();
-            match key.to_lowercase().as_str() {
+        for value in items {
+            let decoded = value.value.url_decode();
+            match value.key.to_lowercase().as_str() {
                 "index" => opt.index = Some(as_u64(decoded)),
                 "limit" => opt.limit = Some(as_u64(decoded)),
                 "status" => {
@@ -83,22 +82,87 @@ impl<'f> FromForm<'f> for Options {
     }
 }
 
+impl Options {
+    pub fn from_rawstr(string: &str) -> Result<Options, HandlerError> {
+        let items = FormItems::from(string);
+        let mut opt = Options {
+            index: None,
+            limit: None,
+            status: None,
+        };
+
+        for item in items {
+            match item.key.to_lowercase().as_ref() {
+                "index" => {
+                    let rdx = match u64::from_str_radix(item.value.as_str(), 10) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            return Err(HandlerErrorKind::GeneralError(format!(
+                                "Bad index: {:?}",
+                                e
+                            ))
+                            .into())
+                        }
+                    };
+                    opt.index = Some(rdx);
+                }
+                "limit" => {
+                    let rdx = match u64::from_str_radix(item.value.as_str(), 10) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            return Err(HandlerErrorKind::GeneralError(format!(
+                                "Bad limit: {:?}",
+                                e
+                            ))
+                            .into())
+                        }
+                    };
+                    opt.limit = Some(rdx);
+                }
+                "status" => opt.status = Some(String::from(item.value.as_str())),
+                _ => {}
+            }
+        }
+        Ok(opt)
+    }
+
+    pub fn to_string(&self) -> Result<String, HandlerError> {
+        let mut result: Vec<String> = Vec::new();
+        if self.index.is_some() {
+            result.push(format!("index={:?}", self.index.unwrap()));
+        }
+        if self.limit.is_some() {
+            result.push(format!("limit={:?}", self.index.unwrap()));
+        }
+        if self.status.is_some() {
+            result.push(format!(
+                "status={:?}",
+                url::percent_encoding::percent_decode(self.status.clone().unwrap().as_bytes())
+            ));
+        }
+        Ok(result.join("&"))
+    }
+}
+
 // Collect header info.Request
 pub struct HeaderInfo {
-    headers: HashMap<String, Option<String>>
+    headers: HashMap<String, Option<String>>,
 }
 
 impl<'a, 'r> FromRequest<'a, 'r> for HeaderInfo {
     type Error = HandlerError;
 
     fn from_request(request: &'a Request<'r>) -> request::Outcome<Self, HandlerError> {
-        let mut headers:HashMap<String, Option<String>> = HashMap::new();
-        headers.insert("request_id".to_owned(),
+        let mut headers: HashMap<String, Option<String>> = HashMap::new();
+        headers.insert(
+            "request_id".to_owned(),
             request
-            .headers().get_one("FxA-Request-Id")
-            .or_else(|| request.headers().get_one("X-Request-Id"))
-            .map(|r| r.to_owned()));
-        Success(HeaderInfo{headers})
+                .headers()
+                .get_one("FxA-Request-Id")
+                .or_else(|| request.headers().get_one("X-Request-Id"))
+                .map(std::borrow::ToOwned::to_owned),
+        );
+        Success(HeaderInfo { headers })
     }
 }
 
@@ -140,7 +204,7 @@ impl Server {
         }
 
         Ok(rocket
-            .attach(AdHoc::on_attach(|rocket| {
+            .attach(AdHoc::on_attach("init", |rocket| {
                 // Copy the config into a state manager.
                 let pool = db::pool_from_config(rocket.config()).expect("Could not get pool");
                 let rbconfig = ServerConfig::new(rocket.config());
@@ -211,11 +275,10 @@ pub fn check_fxa_token(
                 "{}send/{}",
                 FxAAuthenticator::fxa_root(&config.auth_app_name),
                 device_id
-            ))
-                || scope.contains(&format!(
-                    "{}send",
-                    FxAAuthenticator::fxa_root(&config.auth_app_name)
-                )) {
+            )) || scope.contains(&format!(
+                "{}send",
+                FxAAuthenticator::fxa_root(&config.auth_app_name)
+            )) {
                 return Ok(true);
             }
         }
@@ -224,11 +287,10 @@ pub fn check_fxa_token(
                 "{}recv/{}",
                 FxAAuthenticator::fxa_root(&config.auth_app_name),
                 device_id
-            ))
-                || scope.contains(&format!(
-                    "{}recv",
-                    FxAAuthenticator::fxa_root(&config.auth_app_name)
-                )) {
+            )) || scope.contains(&format!(
+                "{}recv",
+                FxAAuthenticator::fxa_root(&config.auth_app_name)
+            )) {
                 return Ok(true);
             }
         }
@@ -240,7 +302,8 @@ pub fn check_fxa_token(
 /// ## GET method handler (with options)
 ///
 /// Process a `GET /<user>/<device>?<options>` request and return appropriate records.
-#[get("/<user_id>/<device_id>?<options>")]
+#[allow(clippy::too_many_arguments)]
+#[get("/<user_id>/<device_id>?<opt_str>")]
 fn read_opt(
     conn: Conn,
     config: ServerConfig,
@@ -249,40 +312,46 @@ fn read_opt(
     token: HandlerResult<FxAAuthenticator>,
     user_id: String,
     device_id: String,
-    options: Options,
-) -> HandlerResult<Json> {
+    opt_str: String,
+) -> Result<JsonValue, HandlerError> {
     // 👩🏫 note that the "token" var is a HandlerResult wrapped Validate struct.
     // Validate::from_request extracts the token from the Authorization header, validates it
     // against FxA and the method, and either returns OK or an error. We need to reraise it to the
     // handler.
     let request_id = headers.headers.get("request_id");
+    let options = Options::from_rawstr(&opt_str)?;
     slog_debug!(logger.log, "Handling Read";
-        "user_id" => &user_id,
-        "device_id" => &device_id,
-        "request_id" => &request_id,
-        );
+    "user_id" => &user_id,
+    "device_id" => &device_id,
+    "request_id" => &request_id,
+    );
     check_token(&config, Method::Get, &device_id, &token)?;
     let max_index = DatabaseManager::max_index(&conn, &user_id, &device_id)?;
     let mut index = options.index;
     let mut limit = options.limit;
-    match options.status.unwrap_or_else(|| String::from("")).to_lowercase().as_str() {
+    match options
+        .status
+        .unwrap_or_else(|| String::from(""))
+        .to_lowercase()
+        .as_str()
+    {
         "new" => {
             // New entry, needs all data
             index = None;
             limit = None;
             slog_debug!(logger.log, "Welcome new user";
-                "user_id" => &user_id,
-                "request_id" => &request_id
-                );
+            "user_id" => &user_id,
+            "request_id" => &request_id
+            );
         }
         "lost" => {
             // Just lost, needs just the next index.
             index = None;
             limit = Some(0);
             slog_debug!(logger.log, "Sorry, you're lost";
-                "user_id" => &user_id,
-                "request_id" => &request_id
-                );
+            "user_id" => &user_id,
+            "request_id" => &request_id
+            );
         }
         _ => {}
     };
@@ -293,10 +362,10 @@ fn read_opt(
         msg_max = cmp::max(msg_max, message.idx as u64);
     }
     slog_debug!(logger.log, "Found messages";
-        "len" => messages.len(),
-        "user_id" => &user_id,
-        "request_id" => &request_id
-        );
+    "len" => messages.len(),
+    "user_id" => &user_id,
+    "request_id" => &request_id
+    );
     // returns json {"status":200, "index": max_index, "messages":[{"index": #, "data": String}, ...]}
     let is_last = match limit {
         None => true,
@@ -306,18 +375,19 @@ fn read_opt(
             .map(|last| (last.idx as u64) == max_index)
             .unwrap_or(true),
     };
-    Ok(Json(json!({
-            "last": is_last,
-            "index": msg_max,
-            "status": 200,
-            "messages": messages
-        })))
+    Ok(json!({
+        "last": is_last,
+        "index": msg_max,
+        "status": 200,
+        "messages": messages
+    }))
 }
 
 /// ## GET method handler (without options)
 ///
 /// Process a `GET /<user>/<device>` request and return appropriate records.
 /// Currently, rocket.rs requires these to be separate handlers.
+#[allow(clippy::too_many_arguments)]
 #[get("/<user_id>/<device_id>")]
 fn read(
     conn: Conn,
@@ -327,7 +397,7 @@ fn read(
     token: HandlerResult<FxAAuthenticator>,
     user_id: String,
     device_id: String,
-) -> HandlerResult<Json> {
+) -> Result<JsonValue, HandlerError> {
     read_opt(
         conn,
         config,
@@ -340,7 +410,8 @@ fn read(
             index: None,
             limit: None,
             status: Some(String::from("start")),
-        },
+        }
+        .to_string()?,
     )
 }
 
@@ -351,6 +422,7 @@ fn read(
 /// {"ttl"=TimeToLiveInteger, "data"="base64EncryptedDataBlob"}
 /// ```
 ///
+#[allow(clippy::too_many_arguments)]
 #[post("/<user_id>/<device_id>", data = "<data>")]
 fn write(
     conn: Conn,
@@ -361,7 +433,7 @@ fn write(
     user_id: String,
     device_id: String,
     data: Json<DataRecord>,
-) -> HandlerResult<Json> {
+) -> Result<JsonValue, HandlerError> {
     let request_id = headers.headers.get("request_id");
     check_token(&config, Method::Post, &device_id, &token)?;
     if config
@@ -373,16 +445,16 @@ fn write(
     {
         // Auth testing, do not write to db.
         slog_info!(logger.log, "Auth Skipping database check.");
-        return Ok(Json(json!({
+        return Ok(json!({
             "status": 200,
             "index": -1,
-        })));
+        }));
     }
     slog_debug!(logger.log, "Writing new record:";
-        "user_id" => &user_id,
-        "device_id" => &device_id,
-        "request_id" => &request_id
-        );
+    "user_id" => &user_id,
+    "device_id" => &device_id,
+    "request_id" => &request_id
+    );
     let response = DatabaseManager::new_record(
         &conn,
         &user_id,
@@ -394,10 +466,10 @@ fn write(
         return Err(response.err().unwrap());
     }
     // returns json {"status": 200, "index": #}
-    Ok(Json(json!({
+    Ok(json!({
         "status": 200,
         "index": response.unwrap(),
-    })))
+    }))
 }
 
 /// ## DELETE method handler for user and device data
@@ -411,11 +483,11 @@ fn delete(
     token: HandlerResult<FxAAuthenticator>,
     user_id: String,
     device_id: String,
-) -> HandlerResult<Json> {
+) -> Result<JsonValue, HandlerError> {
     check_token(&config, Method::Delete, &device_id, &token)?;
     DatabaseManager::delete(&conn, &user_id, &device_id)?;
     // returns an empty object
-    Ok(Json(json!({})))
+    Ok(json!({}))
 }
 
 /// ## DELETE method handler for all user data
@@ -427,11 +499,11 @@ fn delete_user(
     config: ServerConfig,
     token: HandlerResult<FxAAuthenticator>,
     user_id: String,
-) -> HandlerResult<Json> {
+) -> Result<JsonValue, HandlerError> {
     check_token(&config, Method::Delete, &String::from(""), &token)?;
     DatabaseManager::delete(&conn, &user_id, &String::from(""))?;
     // returns an empty object
-    Ok(Json(json!({})))
+    Ok(json!({}))
 }
 
 /// ## GET Dockerflow checks
@@ -441,7 +513,7 @@ fn version() -> content::Json<&'static str> {
 }
 
 #[get("/__heartbeat__")]
-fn heartbeat(conn: Conn, config: ServerConfig) -> status::Custom<Json> {
+fn heartbeat(conn: Conn, config: ServerConfig) -> status::Custom<JsonValue> {
     let (status, db_msg) = match db::health_check(&*conn) {
         Ok(_) => (Status::Ok, "ok".to_owned()),
         Err(e) => (Status::ServiceUnavailable, e.description().to_owned()),
@@ -450,12 +522,12 @@ fn heartbeat(conn: Conn, config: ServerConfig) -> status::Custom<Json> {
 
     status::Custom(
         status,
-        Json(json!({
+        json!({
             "status": if status == Status::Ok { "ok" } else { "error" },
             "code": status.code,
             "fxa_auth": config.fxa_host,
             "database": db_msg,
-        })),
+        }),
     )
 }
 
@@ -471,7 +543,7 @@ mod test {
     use rocket::config::{Config, Environment, RocketConfig, Table};
     use rocket::http::Header;
     use rocket::local::Client;
-    use serde_json::{self, Value};
+    use rocket_contrib::json::JsonValue;
 
     use super::Server;
     use auth::FxAAuthenticator;
@@ -520,7 +592,7 @@ mod test {
     }
 
     fn rocket_client(config: Config) -> Client {
-        let test_rocket = Server::start(rocket::custom(config, true)).expect("test rocket failed");
+        let test_rocket = Server::start(rocket::custom(config)).expect("test rocket failed");
         Client::new(test_rocket).expect("test rocket launch failed")
     }
 
@@ -594,7 +666,8 @@ mod test {
             &write_result
                 .body_string()
                 .expect("Empty body string for write"),
-        ).expect("Could not parse write response body");
+        )
+        .expect("Could not parse write response body");
         let mut read_result = client
             .get(url.clone())
             .header(Header::new("Authorization", "bearer token"))
@@ -606,7 +679,8 @@ mod test {
             &read_result
                 .body_string()
                 .expect("Empty body for read response"),
-        ).expect("Could not parse read response");
+        )
+        .expect("Could not parse read response");
 
         assert!(read_json.status == 200);
         assert!(read_json.messages.len() > 0);
@@ -625,7 +699,8 @@ mod test {
             &read_result
                 .body_string()
                 .expect("Empty body for read query"),
-        ).expect("Could not parse read query body");
+        )
+        .expect("Could not parse read query body");
         assert!(read_json.status == 200);
         assert!(read_json.messages.len() == 1);
         // a MySql race condition can cause these to fail.
@@ -644,7 +719,8 @@ mod test {
             &read_result
                 .body_string()
                 .expect("Empty body for read query"),
-        ).expect("Could not parse read query body");
+        )
+        .expect("Could not parse read query body");
         assert!(read_json.status == 200);
         assert!(read_json.messages.len() == 0);
 
@@ -711,7 +787,8 @@ mod test {
             &read_result
                 .body_string()
                 .expect("Empty verification body string"),
-        ).expect("Could not parse verification body string");
+        )
+        .expect("Could not parse verification body string");
         assert!(read_json.messages.len() == 0);
     }
 
@@ -721,9 +798,9 @@ mod test {
         let client = rocket_client(config);
         let mut response = client.get("/__version__").dispatch();
         assert_eq!(response.status(), rocket::http::Status::Ok);
-        let result: Value = serde_json::from_str(
-            &response.body_string().expect("Empty body for read query"),
-        ).expect("Could not parse read query body");
+        let result: JsonValue =
+            serde_json::from_str(&response.body_string().expect("Empty body for read query"))
+                .expect("Could not parse read query body");
         assert_eq!(result["version"], "TBD");
     }
 
@@ -733,9 +810,9 @@ mod test {
         let client = rocket_client(config);
         let mut response = client.get("/__heartbeat__").dispatch();
         assert_eq!(response.status(), rocket::http::Status::Ok);
-        let result: Value = serde_json::from_str(
-            &response.body_string().expect("Empty body for read query"),
-        ).expect("Could not parse read query body");
+        let result: JsonValue =
+            serde_json::from_str(&response.body_string().expect("Empty body for read query"))
+                .expect("Could not parse read query body");
         assert_eq!(result["code"], 200);
         assert_eq!(result["fxa_auth"], "oauth.stage.mozaws.net");
         assert_eq!(result["database"], "ok");

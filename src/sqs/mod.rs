@@ -61,7 +61,6 @@ impl SyncEventQueue {
     /// Configuration Options:
     /// * **sqs_url**: AWS SWS url to fetch data from. Defaults to the dev FxA account change URL.
     pub fn from_config(config: &Config, logger: &RBLogger) -> SyncEventQueue {
-
         let region = env::var("AWS_LOCAL_SQS")
             .map(|endpoint| Region::Custom {
                 endpoint,
@@ -153,7 +152,7 @@ mod test {
 
     fn setup(queue_url: String) -> SyncEventQueue {
         let config = Config::new(config::Environment::Development);
-        let logger = RBLogger::new(&config.unwrap());
+        let logger = RBLogger::new(&config);
         let region = env::var("AWS_LOCAL_SQS")
             .map(|endpoint| Region::Custom {
                 endpoint,
@@ -163,7 +162,7 @@ mod test {
         SyncEventQueue {
             sqs: Rc::new(SqsClient::new(region)),
             url: queue_url,
-            logger: logger,
+            logger,
         }
     }
 
@@ -287,35 +286,35 @@ mod test {
             }
         };
         /*
-        // TODO: fix these, or mock them because waiting 2s per loop is nuts.
-        data = json!({"event": "device:delete", "uid": "test_test"});
-        let (_, result) = load_record("rustbox_test_queue".to_owned(), data.to_string());
-        thread::sleep(Duration::new(2,0));
-        let response = match queue.fetch(){
-            Some(r) => {
-                println!("response: {:?}", r);
-                assert_eq!(&r.uid, "test_test");
-                assert_eq!(&r.event, "device:delete" )
-            }
-            None => {
-                kill_queue(&queue, queue_url);
-                panic!("Message not found.");
-            }
-        };
+                // TODO: fix these, or mock them because waiting 2s per loop is nuts.
+                data = json!({"event": "device:delete", "uid": "test_test"});
+                let (_, result) = load_record("rustbox_test_queue".to_owned(), data.to_string());
+                thread::sleep(Duration::new(2,0));
+                let response = match queue.fetch(){
+                    Some(r) => {
+                        println!("response: {:?}", r);
+                        assert_eq!(&r.uid, "test_test");
+                        assert_eq!(&r.event, "device:delete" )
+                    }
+                    None => {
+                        kill_queue(&queue, queue_url);
+                        panic!("Message not found.");
+                    }
+                };
 
-        data = json!({"event": "something", "uid": "test_test"});
-        let (_, result) = load_record("rustbox_test_queue".to_owned(), data.to_string());
-        thread::sleep(Duration::new(2,0));
-        let response = match queue.fetch(){
-            Some(r) => {
-                kill_queue(&queue, queue_url);
-                panic!("Message found");
-            }
-            None => {
+                data = json!({"event": "something", "uid": "test_test"});
+                let (_, result) = load_record("rustbox_test_queue".to_owned(), data.to_string());
+                thread::sleep(Duration::new(2,0));
+                let response = match queue.fetch(){
+                    Some(r) => {
+                        kill_queue(&queue, queue_url);
+                        panic!("Message found");
+                    }
+                    None => {
 
-            }
-        };
-*/
+                    }
+                };
+        */
 
         //TODO: Verify stuffs
         kill_queue(&queue, queue_url, 0);
