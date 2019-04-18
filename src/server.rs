@@ -16,7 +16,7 @@ use logging::RBLogger;
 use rocket::config;
 use rocket::fairing::AdHoc;
 use rocket::http::{Method, Status};
-use rocket::request::{self, FormItems, FromForm, FromRequest};
+use rocket::request::{self, FormItems, FromRequest};
 use rocket::response::{content, status};
 use rocket::Outcome::Success;
 use rocket::{self, Request};
@@ -53,35 +53,6 @@ fn as_u64(opt: Result<String, Utf8Error>) -> u64 {
         .unwrap_or(0)
 }
 
-impl<'f> FromForm<'f> for Options {
-    type Error = ();
-
-    /// Convert the query arguments into a rust structure.
-    fn from_form(items: &mut FormItems<'f>, _strict: bool) -> Result<Options, ()> {
-        let mut opt = Options {
-            index: None,
-            limit: None,
-            status: None,
-        };
-
-        for value in items {
-            let decoded = value.value.url_decode();
-            match value.key.to_lowercase().as_str() {
-                "index" => opt.index = Some(as_u64(decoded)),
-                "limit" => opt.limit = Some(as_u64(decoded)),
-                "status" => {
-                    opt.status = match decoded {
-                        Ok(status) => Some(status),
-                        Err(_) => None,
-                    }
-                }
-                _ => {}
-            }
-        }
-        Ok(opt)
-    }
-}
-
 impl Options {
     pub fn from_rawstr(string: &str) -> Result<Options, HandlerError> {
         let items = FormItems::from(string);
@@ -94,32 +65,20 @@ impl Options {
         for item in items {
             match item.key.to_lowercase().as_ref() {
                 "index" => {
-                    let rdx = match u64::from_str_radix(item.value.as_str(), 10) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            return Err(HandlerErrorKind::GeneralError(format!(
-                                "Bad index: {:?}",
-                                e
-                            ))
-                            .into())
-                        }
-                    };
-                    opt.index = Some(rdx);
+                    opt.index = Some(u64::from_str_radix(item.value.as_str(), 10).map_err(|e| {
+                        HandlerErrorKind::GeneralError(format!("Bad index: {:?}", e))
+                    })?)
                 }
                 "limit" => {
-                    let rdx = match u64::from_str_radix(item.value.as_str(), 10) {
-                        Ok(v) => v,
-                        Err(e) => {
-                            return Err(HandlerErrorKind::GeneralError(format!(
-                                "Bad limit: {:?}",
-                                e
-                            ))
-                            .into())
-                        }
-                    };
-                    opt.limit = Some(rdx);
+                    opt.limit = Some(u64::from_str_radix(item.value.as_str(), 10).map_err(|e| {
+                        HandlerErrorKind::GeneralError(format!("Bad limit: {:?}", e))
+                    })?)
                 }
-                "status" => opt.status = Some(String::from(item.value.as_str())),
+                "status" => {
+                    opt.status = Some(item.value.url_decode().map_err(|e| {
+                        HandlerErrorKind::GeneralError(format!("Bad status: {:?}", e))
+                    })?)
+                }
                 _ => {}
             }
         }

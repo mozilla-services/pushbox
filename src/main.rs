@@ -50,18 +50,6 @@ use std::env;
 use rocket::config::RocketConfig;
 
 fn main() {
-    /*
-    // XXX: support ROCKET_LOG=off (coming in rocket 0.4)
-    let (lk, lv) = env::vars()
-        .find(|kv| kv.0.to_lowercase() == "rocket_log")
-        .unwrap_or_else(|| ("rocket_log".to_owned(), "normal".to_owned()));
-    let log_off = lv.to_lowercase() == "off";
-    if log_off {
-        // rocket 0.3 doesn't understand "off" yet, so remove it
-        env::remove_var(lk);
-    }
-    */
-
     // RocketConfig::init basically
     let rconfig = RocketConfig::read().unwrap_or_else(|_| {
         let path = env::current_dir()
