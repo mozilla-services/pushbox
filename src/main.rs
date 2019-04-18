@@ -51,6 +51,7 @@ use rocket::config::RocketConfig;
 
 fn main() {
     // RocketConfig::init basically
+
     let rconfig = RocketConfig::read().unwrap_or_else(|_| {
         let path = env::current_dir()
             .unwrap()
