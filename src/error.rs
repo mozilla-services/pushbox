@@ -13,7 +13,7 @@ use failure::{Backtrace, Context, Error, Fail};
 use rocket::http::Status;
 use rocket::response::{Responder, Response};
 use rocket::{response, Request};
-use rocket_contrib::Json;
+use rocket_contrib::json::Json;
 
 pub type Result<T> = result::Result<T, Error>;
 
@@ -48,6 +48,8 @@ pub enum HandlerErrorKind {
     //NotFound,
     #[fail(display = "A database error occurred")]
     ServiceErrorDB,
+    #[fail(display = "General error: {:?}", _0)]
+    GeneralError(String),
     // Note: Make sure that if display has an argument, the label includes the argument,
     // otherwise the process macro parser will fail on `derive(Fail)`
     //#[fail(display = "Unexpected rocket error: {:?}", _0)]
@@ -62,7 +64,8 @@ impl HandlerErrorKind {
             // HandlerErrorKind::NotFound => Status::NotFound,
             HandlerErrorKind::ServiceErrorDB => Status::ServiceUnavailable,
             HandlerErrorKind::ServiceErrorFxA(_) => Status::BadGateway,
-            _ => Status::Unauthorized
+            HandlerErrorKind::GeneralError(_) => Status::InternalServerError,
+            _ => Status::Unauthorized,
         }
     }
 
@@ -75,7 +78,8 @@ impl HandlerErrorKind {
             HandlerErrorKind::UnauthorizedBadToken => 400,
             HandlerErrorKind::UnauthorizedNoHeader => 401,
             HandlerErrorKind::ServiceErrorDB => 501,
-            HandlerErrorKind::ServiceErrorFxA(_) => 510
+            HandlerErrorKind::ServiceErrorFxA(_) => 510,
+            HandlerErrorKind::GeneralError(_) => 500,
         }
     }
 }
