@@ -23,7 +23,7 @@ services:
         depends_on:
           - db
         environment:
-          ROCKET_DATABASE_URL: mysql://test:test@db:3306/pushbox
+          ROCKET_DATABASE_URL: mysql://test:test@db:4306/pushbox
 
 volumes:
     db_data:
