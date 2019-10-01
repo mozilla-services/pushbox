@@ -3,7 +3,6 @@
 use std::cmp;
 use std::collections::HashMap;
 use std::error::Error as StdError;
-use std::str::Utf8Error;
 use std::{thread, time};
 
 use auth::{AuthType, FxAAuthenticator};
@@ -22,7 +21,7 @@ use rocket::Outcome::Success;
 use rocket::{self, Request};
 use rocket_contrib::json::{Json, JsonValue};
 use sqs::{self, SyncEvent};
-use url;
+use percent_encoding;
 
 /// An incoming Data Storage request.
 #[derive(Deserialize, Debug)]
@@ -44,13 +43,6 @@ pub struct Options {
     /// * **lost** - Client just needs to know the latest index.
     /// * **new**  - Client needs latest index and all available records.
     pub status: Option<String>,
-}
-
-// Convenience function to convert a Option result into a u64 value (or 0)
-fn as_u64(opt: Result<String, Utf8Error>) -> u64 {
-    opt.unwrap_or_else(|_| "0".to_owned())
-        .parse::<u64>()
-        .unwrap_or(0)
 }
 
 impl Options {
@@ -96,7 +88,7 @@ impl Options {
         if self.status.is_some() {
             result.push(format!(
                 "status={:?}",
-                url::percent_encoding::percent_decode(self.status.clone().unwrap().as_bytes())
+                percent_encoding::percent_decode(self.status.clone().unwrap().as_bytes()).decode_utf8().map_err(|e| { HandlerErrorKind::GeneralError(format!("Could not decode status: {:?}", e))})?
             ));
         }
         Ok(result.join("&"))

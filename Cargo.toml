@@ -4,28 +4,28 @@ name = "pushbox"
 version = "0.2.0"
 
 [dependencies]
-env_logger = "0.6"
+env_logger = "0.7"
 failure = "0.1"
 futures = "0.1"
-mysql = "15.1"
-rand = "0.6"
-rand_core = "0.4"
+mysql = "16.1"
+rand = "0.7"
+rand_core = "0.5"
 reqwest = "0.9"
 rocket = "0.4"
 rocket_codegen = "0.4"
-rusoto_core = "0.37"
-rusoto_sqs = "0.37"
+rusoto_core = "0.40"
+rusoto_sqs = "0.40"
 serde = "1.0"
 serde_derive = "1.0"
 serde_json = "1.0"
-slog = {version="2.4", features=["max_level_debug", "release_max_level_debug"]}
+slog = {version="2.5", features=["max_level_debug", "release_max_level_debug"]}
 slog-async = "2.3.0"
 slog-json = "2.3"
 slog-scope = "4.1"
-slog-stdlog = "3.0"
+slog-stdlog = "4.0"
 slog-term = "2.4"
 time = "0.1"
 diesel = {version="1.4",features=["mysql", "r2d2"]}
 diesel_migrations = {version = "1.4",features = ["mysql"]}
 rocket_contrib = {version = "0.4",default-features = true}
-url="1.7"
+percent-encoding="2.1"
