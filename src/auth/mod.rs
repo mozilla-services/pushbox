@@ -482,5 +482,4 @@ mod test {
             .dispatch();
         assert!(result.status() == rocket::http::Status::raw(401))
     }
-
 }
