@@ -27,6 +27,7 @@ extern crate reqwest;
 extern crate rocket;
 #[macro_use]
 extern crate rocket_contrib;
+extern crate percent_encoding;
 extern crate rusoto_core;
 extern crate rusoto_sqs;
 extern crate serde;
@@ -35,7 +36,6 @@ extern crate slog_async;
 extern crate slog_json;
 extern crate slog_stdlog;
 extern crate slog_term;
-extern crate percent_encoding;
 
 pub mod auth;
 pub mod config;

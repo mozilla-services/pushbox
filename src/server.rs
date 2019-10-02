@@ -12,6 +12,7 @@ use db::{self, Conn, MysqlPool};
 use error::{HandlerError, HandlerErrorKind, HandlerResult};
 use failure::Error;
 use logging::RBLogger;
+use percent_encoding;
 use rocket::config;
 use rocket::fairing::AdHoc;
 use rocket::http::{Method, Status};
@@ -21,7 +22,6 @@ use rocket::Outcome::Success;
 use rocket::{self, Request};
 use rocket_contrib::json::{Json, JsonValue};
 use sqs::{self, SyncEvent};
-use percent_encoding;
 
 /// An incoming Data Storage request.
 #[derive(Deserialize, Debug)]
@@ -88,7 +88,11 @@ impl Options {
         if self.status.is_some() {
             result.push(format!(
                 "status={:?}",
-                percent_encoding::percent_decode(self.status.clone().unwrap().as_bytes()).decode_utf8().map_err(|e| { HandlerErrorKind::GeneralError(format!("Could not decode status: {:?}", e))})?
+                percent_encoding::percent_decode(self.status.clone().unwrap().as_bytes())
+                    .decode_utf8()
+                    .map_err(|e| {
+                        HandlerErrorKind::GeneralError(format!("Could not decode status: {:?}", e))
+                    })?
             ));
         }
         Ok(result.join("&"))
