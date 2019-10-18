@@ -58,17 +58,26 @@ impl Options {
             match item.key.to_lowercase().as_ref() {
                 "index" => {
                     opt.index = Some(u64::from_str_radix(item.value.as_str(), 10).map_err(|e| {
-                        HandlerErrorKind::GeneralError(format!("Bad index: {:?}", e))
+                        HandlerErrorKind::InvalidOptionIndex(
+                            e.to_string(),
+                            item.value.as_str().to_owned(),
+                        )
                     })?)
                 }
                 "limit" => {
                     opt.limit = Some(u64::from_str_radix(item.value.as_str(), 10).map_err(|e| {
-                        HandlerErrorKind::GeneralError(format!("Bad limit: {:?}", e))
+                        HandlerErrorKind::InvalidOptionLimit(
+                            e.to_string(),
+                            item.value.as_str().to_owned(),
+                        )
                     })?)
                 }
                 "status" => {
                     opt.status = Some(item.value.url_decode().map_err(|e| {
-                        HandlerErrorKind::GeneralError(format!("Bad status: {:?}", e))
+                        HandlerErrorKind::InvalidOptionStatus(
+                            e.to_string(),
+                            item.value.as_str().to_owned(),
+                        )
                     })?)
                 }
                 _ => {}
@@ -91,7 +100,10 @@ impl Options {
                 percent_encoding::percent_decode(self.status.clone().unwrap().as_bytes())
                     .decode_utf8()
                     .map_err(|e| {
-                        HandlerErrorKind::GeneralError(format!("Could not decode status: {:?}", e))
+                        HandlerErrorKind::InvalidOptionStatus(
+                            e.to_string(),
+                            self.status.clone().unwrap().as_str().to_owned(),
+                        )
                     })?
             ));
         }

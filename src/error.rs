@@ -41,6 +41,12 @@ pub enum HandlerErrorKind {
     UnauthorizedBadToken,
     #[fail(display = "Unauthorized: Missing Authorization Header")]
     UnauthorizedNoHeader,
+    #[fail(display = "Invalid Option: Bad index: {:?} {:?}", _0, _1)]
+    InvalidOptionIndex(String, String),
+    #[fail(display = "Invalid Option: Bad limit: {:?} {:?}", _0, _1)]
+    InvalidOptionLimit(String, String),
+    #[fail(display = "Invalid Option: Bad Status: {:?} {:?}", _0, _1)]
+    InvalidOptionStatus(String, String),
     #[fail(display = "Unauthorized: FxA Error: {:?}", _0)]
     ServiceErrorFxA(String),
     // 404 Not Found
@@ -77,6 +83,9 @@ impl HandlerErrorKind {
             HandlerErrorKind::InvalidAuthBadSchema => 202,
             HandlerErrorKind::UnauthorizedBadToken => 400,
             HandlerErrorKind::UnauthorizedNoHeader => 401,
+            HandlerErrorKind::InvalidOptionIndex(_, _) => 402,
+            HandlerErrorKind::InvalidOptionLimit(_, _) => 403,
+            HandlerErrorKind::InvalidOptionStatus(_, _) => 404,
             HandlerErrorKind::ServiceErrorDB => 501,
             HandlerErrorKind::ServiceErrorFxA(_) => 510,
             HandlerErrorKind::GeneralError(_) => 500,
