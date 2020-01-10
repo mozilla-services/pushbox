@@ -41,12 +41,12 @@ pub enum HandlerErrorKind {
     UnauthorizedBadToken,
     #[fail(display = "Unauthorized: Missing Authorization Header")]
     UnauthorizedNoHeader,
-    #[fail(display = "Invalid Option: Bad index: {:?} {:?}", _0, _1)]
-    InvalidOptionIndex(String, String),
-    #[fail(display = "Invalid Option: Bad limit: {:?} {:?}", _0, _1)]
-    InvalidOptionLimit(String, String),
-    #[fail(display = "Invalid Option: Bad Status: {:?} {:?}", _0, _1)]
-    InvalidOptionStatus(String, String),
+    #[fail(display = "Invalid Option: Bad index: {:?}", _0)]
+    InvalidOptionIndex(String),
+    #[fail(display = "Invalid Option: Bad limit: {:?}", _0)]
+    InvalidOptionLimit(String),
+    #[fail(display = "Invalid Option: Bad Status: {:?}", _0)]
+    InvalidOptionStatus(String),
     #[fail(display = "Unauthorized: FxA Error: {:?}", _0)]
     ServiceErrorFxA(String),
     // 404 Not Found
@@ -71,6 +71,9 @@ impl HandlerErrorKind {
             HandlerErrorKind::ServiceErrorDB => Status::ServiceUnavailable,
             HandlerErrorKind::ServiceErrorFxA(_) => Status::BadGateway,
             HandlerErrorKind::GeneralError(_) => Status::InternalServerError,
+            HandlerErrorKind::InvalidOptionIndex(_)
+            | HandlerErrorKind::InvalidOptionLimit(_)
+            | HandlerErrorKind::InvalidOptionStatus(_) => Status::BadRequest,
             _ => Status::Unauthorized,
         }
     }
@@ -83,9 +86,9 @@ impl HandlerErrorKind {
             HandlerErrorKind::InvalidAuthBadSchema => 202,
             HandlerErrorKind::UnauthorizedBadToken => 400,
             HandlerErrorKind::UnauthorizedNoHeader => 401,
-            HandlerErrorKind::InvalidOptionIndex(_, _) => 402,
-            HandlerErrorKind::InvalidOptionLimit(_, _) => 403,
-            HandlerErrorKind::InvalidOptionStatus(_, _) => 404,
+            HandlerErrorKind::InvalidOptionIndex(_) => 402,
+            HandlerErrorKind::InvalidOptionLimit(_) => 403,
+            HandlerErrorKind::InvalidOptionStatus(_) => 404,
             HandlerErrorKind::ServiceErrorDB => 501,
             HandlerErrorKind::ServiceErrorFxA(_) => 510,
             HandlerErrorKind::GeneralError(_) => 500,
