@@ -92,7 +92,7 @@ impl FxAAuthenticator {
                 scope: vec![Self::fxa_root(&config.auth_app_name)],
             });
         }
-        let client = match reqwest::Client::builder()
+        let client = match reqwest::blocking::Client::builder()
             .gzip(true)
             .timeout(Duration::from_secs(3))
             .build()
@@ -139,7 +139,7 @@ impl FxAAuthenticator {
             }
         } else {
             // get the FxA Validiator response.
-            let mut raw_resp = match client.post(&fxa_url).json(&body).send() {
+            let raw_resp = match client.post(&fxa_url).json(&body).send() {
                 Ok(response) => response,
                 Err(err) => {
                     slog_error!(logger.log, "Post to FxA returned unexpected error: {}", err);
