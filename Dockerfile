@@ -1,5 +1,6 @@
 # Docker 17.05 or higher required for multi-stage builds
-FROM rust:1.30.0-stretch as builder
+# NOTE: this builds w/ a nightly version (specified in rust-toolchain)
+FROM rust:1.40.0-buster as builder
 ADD . /app
 WORKDIR /app
 RUN \
@@ -13,8 +14,8 @@ RUN \
     cp /app/target/release/pushbox /app/bin
 
 
-FROM debian:stretch-slim
-# FROM debian:stretch  # for debugging docker build
+FROM debian:buster-slim
+# FROM debian:buster  # for debugging docker build
 MAINTAINER <src+pushbox@jrconlin.com>
 RUN \
     groupadd --gid 10001 app && \

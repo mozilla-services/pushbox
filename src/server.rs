@@ -2,7 +2,6 @@
 #![allow(unknown_lints)]
 use std::cmp;
 use std::collections::HashMap;
-use std::error::Error as StdError;
 use std::{thread, time};
 
 use auth::{AuthType, FxAAuthenticator};
@@ -379,20 +378,24 @@ fn version() -> content::Json<&'static str> {
 }
 
 #[get("/__heartbeat__")]
-fn heartbeat(conn: Conn, config: ServerConfig) -> status::Custom<JsonValue> {
-    let (status, db_msg) = match db::health_check(&*conn) {
-        Ok(_) => (Status::Ok, "ok".to_owned()),
-        Err(e) => (Status::ServiceUnavailable, e.description().to_owned()),
+fn heartbeat(conn: Conn, config: ServerConfig, logger: RBLogger) -> status::Custom<JsonValue> {
+    let status = if let Err(e) = db::health_check(&*conn) {
+        let status = Status::ServiceUnavailable;
+        slog_error!(logger.log, "Database heartbeat failed {}", e; "code" => status.code);
+        status
+    } else {
+        Status::Ok
     };
     // XXX: maybe add a health check for SQS
 
+    let msg = if status == Status::Ok { "ok" } else { "error" };
     status::Custom(
         status,
         json!({
-            "status": if status == Status::Ok { "ok" } else { "error" },
+            "status": msg,
             "code": status.code,
             "fxa_auth": config.fxa_host,
-            "database": db_msg,
+            "database": msg,
         }),
     )
 }
