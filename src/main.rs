@@ -23,22 +23,7 @@ mod logging;
 pub mod server;
 pub mod sqs;
 
-use std::env;
-
-use rocket::config::RocketConfig;
-
 fn main() {
-    // RocketConfig::init basically
-
-    let rconfig = RocketConfig::read().unwrap_or_else(|_| {
-        let path = env::current_dir()
-            .unwrap()
-            .join(&format!(".{}.{}", "default", "Rocket.toml"));
-        RocketConfig::active_default_from(Some(&path)).unwrap()
-    });
-
-    // rocket::ignite basically
-    let config = rconfig.active().clone();
-    let rocket_serv = server::Server::start(rocket::custom(config));
+    let rocket_serv = server::Server::start(rocket::ignite());
     rocket_serv.unwrap().launch();
 }
