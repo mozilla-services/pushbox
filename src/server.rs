@@ -12,11 +12,10 @@ use db::{self, Conn, MysqlPool};
 use error::{HandlerError, HandlerErrorKind, HandlerResult};
 use failure::Error;
 use logging::RBLogger;
-use percent_encoding;
 use rocket::config;
 use rocket::fairing::AdHoc;
-use rocket::http::{Method, Status};
-use rocket::request::{self, FormItems, FromRequest};
+use rocket::http::{Method, RawStr, Status};
+use rocket::request::{self, FromRequest};
 use rocket::response::{content, status};
 use rocket::Outcome::Success;
 use rocket::{self, Request};
@@ -30,85 +29,6 @@ pub struct DataRecord {
     ttl: u64,
     // The serialized data to store.
     data: String,
-}
-
-/// The request arguments available.
-#[derive(Debug)]
-pub struct Options {
-    /// The start index to begin querying from.
-    pub index: Option<u64>,
-    /// The max number of records to return for this request.
-    pub limit: Option<u64>,
-    /// The status of the client:
-    /// * **lost** - Client just needs to know the latest index.
-    /// * **new**  - Client needs latest index and all available records.
-    pub status: Option<String>,
-}
-
-impl Options {
-    pub fn from_rawstr(string: &str) -> Result<Options, HandlerError> {
-        let items = FormItems::from(string);
-        let mut opt = Options {
-            index: None,
-            limit: None,
-            status: None,
-        };
-
-        for item in items {
-            match item.key.to_lowercase().as_ref() {
-                "index" => {
-                    opt.index = Some(u64::from_str_radix(item.value.as_str(), 10).map_err(|e| {
-                        HandlerErrorKind::InvalidOptionIndex(
-                            e.to_string(),
-                            item.value.as_str().to_owned(),
-                        )
-                    })?)
-                }
-                "limit" => {
-                    opt.limit = Some(u64::from_str_radix(item.value.as_str(), 10).map_err(|e| {
-                        HandlerErrorKind::InvalidOptionLimit(
-                            e.to_string(),
-                            item.value.as_str().to_owned(),
-                        )
-                    })?)
-                }
-                "status" => {
-                    opt.status = Some(item.value.url_decode().map_err(|e| {
-                        HandlerErrorKind::InvalidOptionStatus(
-                            e.to_string(),
-                            item.value.as_str().to_owned(),
-                        )
-                    })?)
-                }
-                _ => {}
-            }
-        }
-        Ok(opt)
-    }
-
-    pub fn to_string(&self) -> Result<String, HandlerError> {
-        let mut result: Vec<String> = Vec::new();
-        if self.index.is_some() {
-            result.push(format!("index={:?}", self.index.unwrap()));
-        }
-        if self.limit.is_some() {
-            result.push(format!("limit={:?}", self.index.unwrap()));
-        }
-        if self.status.is_some() {
-            result.push(format!(
-                "status={:?}",
-                percent_encoding::percent_decode(self.status.clone().unwrap().as_bytes())
-                    .decode_utf8()
-                    .map_err(|e| {
-                        HandlerErrorKind::InvalidOptionStatus(
-                            e.to_string(),
-                            self.status.clone().unwrap().as_str().to_owned(),
-                        )
-                    })?
-            ));
-        }
-        Ok(result.join("&"))
-    }
 }
 
 // Collect header info.Request
@@ -179,10 +99,7 @@ impl Server {
                 slog_info!(logger.log, "sLogging initialized...");
                 Ok(rocket.manage(rbconfig).manage(pool).manage(logger))
             }))
-            .mount(
-                "/v1/store",
-                routes![read, read_opt, write, delete, delete_user],
-            )
+            .mount("/v1/store", routes![read, write, delete, delete_user])
             .mount("/", routes![version, heartbeat, lbheartbeat]))
     }
 }
@@ -268,10 +185,17 @@ pub fn check_fxa_token(
 
 /// ## GET method handler (with options)
 ///
-/// Process a `GET /<user>/<device>?<options>` request and return appropriate records.
+/// Process a `GET /<user>/<device>` request and return appropriate records.
+///
+/// Accepts the optional query parameters:
+/// index: The start index to begin querying from
+/// limit: The max number of records to return for this request.
+/// status: The status of the client:
+///         **lost** - Client just needs to know the latest index.
+///         **new**  - Client needs latest index and all available records.
 #[allow(clippy::too_many_arguments)]
-#[get("/<user_id>/<device_id>?<opt_str>")]
-fn read_opt(
+#[get("/<user_id>/<device_id>?<index>&<limit>&<status>")]
+fn read<'r>(
     conn: Conn,
     config: ServerConfig,
     logger: RBLogger,
@@ -279,25 +203,32 @@ fn read_opt(
     token: HandlerResult<FxAAuthenticator>,
     user_id: String,
     device_id: String,
-    opt_str: String,
+    index: Option<Result<u64, &'r RawStr>>,
+    limit: Option<Result<u64, &'r RawStr>>,
+    status: Option<Result<String, &'r RawStr>>,
 ) -> Result<JsonValue, HandlerError> {
+    let mut index = index
+        .transpose()
+        .map_err(|e| HandlerErrorKind::InvalidOptionIndex(e.to_string()))?;
+    let mut limit = limit
+        .transpose()
+        .map_err(|e| HandlerErrorKind::InvalidOptionLimit(e.to_string()))?;
+    let status = status
+        .transpose()
+        .map_err(|e| HandlerErrorKind::InvalidOptionLimit(e.to_string()))?;
     // 👩🏫 note that the "token" var is a HandlerResult wrapped Validate struct.
     // Validate::from_request extracts the token from the Authorization header, validates it
     // against FxA and the method, and either returns OK or an error. We need to reraise it to the
     // handler.
     let request_id = headers.headers.get("request_id");
-    let options = Options::from_rawstr(&opt_str)?;
     slog_debug!(logger.log, "Handling Read";
-    "user_id" => &user_id,
-    "device_id" => &device_id,
-    "request_id" => &request_id,
+                "user_id" => &user_id,
+                "device_id" => &device_id,
+                "request_id" => &request_id,
     );
     check_token(&config, Method::Get, &device_id, &token)?;
     let max_index = DatabaseManager::max_index(&conn, &user_id, &device_id)?;
-    let mut index = options.index;
-    let mut limit = options.limit;
-    match options
-        .status
+    match status
         .unwrap_or_else(|| String::from(""))
         .to_lowercase()
         .as_str()
@@ -329,9 +260,9 @@ fn read_opt(
         msg_max = cmp::max(msg_max, message.idx as u64);
     }
     slog_debug!(logger.log, "Found messages";
-    "len" => messages.len(),
-    "user_id" => &user_id,
-    "request_id" => &request_id
+                "len" => messages.len(),
+                "user_id" => &user_id,
+                "request_id" => &request_id
     );
     // returns json {"status":200, "index": max_index, "messages":[{"index": #, "data": String}, ...]}
     let is_last = match limit {
@@ -348,38 +279,6 @@ fn read_opt(
         "status": 200,
         "messages": messages
     }))
-}
-
-/// ## GET method handler (without options)
-///
-/// Process a `GET /<user>/<device>` request and return appropriate records.
-/// Currently, rocket.rs requires these to be separate handlers.
-#[allow(clippy::too_many_arguments)]
-#[get("/<user_id>/<device_id>")]
-fn read(
-    conn: Conn,
-    config: ServerConfig,
-    logger: RBLogger,
-    headers: HeaderInfo,
-    token: HandlerResult<FxAAuthenticator>,
-    user_id: String,
-    device_id: String,
-) -> Result<JsonValue, HandlerError> {
-    read_opt(
-        conn,
-        config,
-        logger,
-        headers,
-        token,
-        user_id,
-        device_id,
-        Options {
-            index: None,
-            limit: None,
-            status: Some(String::from("start")),
-        }
-        .to_string()?,
-    )
 }
 
 /// ## POST method handler
@@ -511,6 +410,7 @@ mod test {
     use rocket::http::Header;
     use rocket::local::Client;
     use rocket_contrib::json::JsonValue;
+    use serde_json::Value;
 
     use super::Server;
     use auth::FxAAuthenticator;
@@ -698,6 +598,29 @@ mod test {
             .header(Header::new("Content-Type", "application/json"))
             .header(Header::new("FxA-Request-Id", "foobar123"))
             .dispatch();
+    }
+
+    #[test]
+    fn test_invalid_read_params() {
+        let config = rocket_config(default_config_data());
+        let client = rocket_client(config);
+        let url = format!("/v1/store/{}/{}", user_id(), device_id());
+
+        let mut read_result = client
+            .get(format!("{}?limit=foo%20foo", url))
+            .header(Header::new("Authorization", "bearer token"))
+            .header(Header::new("Content-Type", "application/json"))
+            .header(Header::new("FxA-Request-Id", "foobar123"))
+            .dispatch();
+        assert_eq!(read_result.status(), rocket::http::Status::BadRequest);
+        let body: Value = serde_json::from_str(
+            &read_result
+                .body_string()
+                .expect("Empty body for read query"),
+        )
+        .expect("Could not parse read query body");
+        assert_eq!(body["errno"], 403);
+        assert!(body["error"].as_str().unwrap().contains("foo%20foo"));
     }
 
     #[test]
