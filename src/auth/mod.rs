@@ -7,6 +7,8 @@ use reqwest;
 use rocket::request::{self, FromRequest};
 use rocket::Outcome::{Failure, Success};
 use rocket::{Request, State};
+use serde_derive::Deserialize;
+use slog::{crit, debug, error, info, warn};
 
 use crate::error::{HandlerError, HandlerErrorKind, VALIDATION_FAILED};
 
@@ -86,7 +88,7 @@ impl FxAAuthenticator {
         let mut body = HashMap::new();
         body.insert("token", token);
         if config.dryrun {
-            slog_debug!(logger.log, "Dryrun, skipping auth");
+            debug!(logger.log, "Dryrun, skipping auth");
             return Success(FxAAuthenticator {
                 auth_type: AuthType::FxAOauth,
                 scope: vec![Self::fxa_root(&config.auth_app_name)],
@@ -99,7 +101,7 @@ impl FxAAuthenticator {
         {
             Ok(client) => client,
             Err(err) => {
-                slog_crit!(logger.log, "Reqwest failure"; "err" => format!("{:?}", err));
+                crit!(logger.log, "Reqwest failure"; "err" => format!("{:?}", err));
                 return Failure((
                     VALIDATION_FAILED,
                     HandlerErrorKind::ServiceErrorFxA(format!("{}", err)).into(),
@@ -142,7 +144,7 @@ impl FxAAuthenticator {
             let raw_resp = match client.post(&fxa_url).json(&body).send() {
                 Ok(response) => response,
                 Err(err) => {
-                    slog_error!(logger.log, "Post to FxA returned unexpected error: {}", err);
+                    error!(logger.log, "Post to FxA returned unexpected error: {}", err);
                     return Failure((
                         VALIDATION_FAILED,
                         HandlerErrorKind::ServiceErrorFxA(format!("{}", err)).into(),
@@ -152,19 +154,18 @@ impl FxAAuthenticator {
             if !raw_resp.status().is_success() {
                 // Log validation fail
                 let err = HandlerErrorKind::UnauthorizedNoHeader;
-                slog_warn!(logger.log, "{}", &err;
-                    "code" => err.http_status().code,
-                    "errno" => err.errno()
+                warn!(logger.log, "{}", &err;
+                      "code" => err.http_status().code,
+                      "errno" => err.errno()
                 );
                 return Failure((VALIDATION_FAILED, err.into()));
             };
             match raw_resp.json() {
                 Ok(val) => val,
                 Err(err) => {
-                    slog_error!(
+                    error!(
                         logger.log,
-                        "Response from FxA returned unexpected error: {}",
-                        err
+                        "Response from FxA returned unexpected error: {}", err
                     );
                     return Failure((
                         VALIDATION_FAILED,
@@ -194,9 +195,9 @@ impl FxAAuthenticator {
             })
         } else {
             let err = HandlerErrorKind::UnauthorizedBadToken;
-            slog_warn!(logger.log, "{}", &err;
-                "code" => err.http_status().code,
-                "errno" => err.errno()
+            warn!(logger.log, "{}", &err;
+                  "code" => err.http_status().code,
+                  "errno" => err.errno()
             );
             Failure((
                 VALIDATION_FAILED,
@@ -217,7 +218,7 @@ impl<'a, 'r> FromRequest<'a, 'r> for FxAAuthenticator {
     /// Process the Authorization header and return the token.
     fn from_request(request: &'a Request<'r>) -> request::Outcome<Self, HandlerError> {
         let logger = request
-            .guard::<State<RBLogger>>()
+            .guard::<State<'_, RBLogger>>()
             .expect("Logger missing")
             .inner();
         if let Some(auth_header) = request.headers().get_one("Authorization") {
@@ -225,45 +226,45 @@ impl<'a, 'r> FromRequest<'a, 'r> for FxAAuthenticator {
             // There is no other way to get the rocket.config() from inside a request
             // handler.
             let config = request
-                .guard::<State<ServerConfig>>()
+                .guard::<State<'_, ServerConfig>>()
                 .expect("Application missing config")
                 .inner();
             let auth_bits: Vec<&str> = auth_header.splitn(2, ' ').collect();
-            slog_debug!(logger.log, "Checking auth token");
+            debug!(logger.log, "Checking auth token");
             if auth_bits.len() != 2 {
                 let err = HandlerErrorKind::InvalidAuthBadToken;
-                slog_debug!(logger.log, "Server token missing elements"; "token" => &auth_header);
-                slog_warn!(logger.log, "{}", &err;
-                    "code" => err.http_status().code,
-                    "errno" => err.errno(),
+                debug!(logger.log, "Server token missing elements"; "token" => &auth_header);
+                warn!(logger.log, "{}", &err;
+                      "code" => err.http_status().code,
+                      "errno" => err.errno(),
                 );
                 return Failure((VALIDATION_FAILED, err.into()));
             };
             match auth_bits[0].to_lowercase().as_str() {
                 "bearer" | "fxa-oauth-token" => {
-                    slog_debug!(logger.log, "Found Oauth token");
+                    debug!(logger.log, "Found Oauth token");
                     return Self::from_fxa_oauth(auth_bits[1].into(), config, logger);
                 }
                 "fxa-server-key" => {
-                    slog_debug!(logger.log, "Found Server Token");
+                    debug!(logger.log, "Found Server Token");
                     return Self::from_server_token(auth_bits[1].into(), config, logger);
                 }
                 _ => {
                     let err = HandlerErrorKind::InvalidAuthBadSchema;
-                    slog_warn!(logger.log, "{}", &err;
-                        "code" => err.http_status().code,
-                        "errno" => err.errno(),
+                    warn!(logger.log, "{}", &err;
+                          "code" => err.http_status().code,
+                          "errno" => err.errno(),
                     );
                     return Failure((VALIDATION_FAILED, err.into()));
                 }
             }
         } else {
             // No Authorization header
-            slog_info!(logger.log, "No Authorization Header found");
+            info!(logger.log, "No Authorization Header found");
             let err = HandlerErrorKind::MissingAuth;
-            slog_warn!(logger.log, "{}", &err;
-                "code" => err.http_status().code,
-                "errno" => err.errno()
+            warn!(logger.log, "{}", &err;
+                  "code" => err.http_status().code,
+                  "errno" => err.errno()
             );
             return Failure((VALIDATION_FAILED, err.into()));
         }
@@ -279,11 +280,11 @@ mod test {
     use rocket::fairing::AdHoc;
     use rocket::http::Header;
     use rocket::local::Client;
-    use rocket_contrib::json::JsonValue;
+    use rocket_contrib::{json, json::JsonValue};
 
     use super::FxAAuthenticator;
-    use crate::error::HandlerError;
     use crate::config::ServerConfig;
+    use crate::error::HandlerError;
     use crate::error::HandlerResult;
     use crate::logging::RBLogger;
 

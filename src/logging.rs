@@ -1,7 +1,7 @@
 use rocket::config::Config;
 use rocket::request::{self, FromRequest};
 use rocket::{Outcome, Request, State};
-use slog;
+use slog::o;
 use slog::Drain;
 use slog_async;
 use slog_term;
@@ -27,6 +27,6 @@ impl<'a, 'r> FromRequest<'a, 'r> for RBLogger {
     type Error = ();
 
     fn from_request(req: &'a Request<'r>) -> request::Outcome<Self, ()> {
-        Outcome::Success(req.guard::<State<RBLogger>>().unwrap().inner().clone())
+        Outcome::Success(req.guard::<State<'_, RBLogger>>().unwrap().inner().clone())
     }
 }
