@@ -10,7 +10,7 @@ use failure::ResultExt;
 use serde::ser::{Serialize, SerializeStruct, Serializer};
 
 use super::schema::pushboxv1;
-use error::{HandlerErrorKind, HandlerResult};
+use crate::error::{HandlerErrorKind, HandlerResult};
 
 /// MySQL record and table definition for Pushbox
 #[derive(Debug, Queryable, Insertable)]

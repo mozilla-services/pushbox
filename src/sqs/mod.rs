@@ -10,9 +10,9 @@ use rusoto_core::Region;
 use rusoto_sqs::{DeleteMessageRequest, Message, ReceiveMessageRequest, Sqs, SqsClient};
 use serde_json;
 
-use error::Result;
+use crate::error::Result;
 use failure::{self, err_msg};
-use logging::RBLogger;
+use crate::logging::RBLogger;
 
 /// An SQS FxA event.
 #[derive(Default, Debug, Clone)]
@@ -147,8 +147,8 @@ mod test {
     use rusoto_sqs::{self, Message, Sqs, SqsClient};
 
     use super::{SyncEvent, SyncEventQueue};
-    use error::Result;
-    use logging::RBLogger;
+    use crate::error::Result;
+    use crate::logging::RBLogger;
 
     fn setup(queue_url: String) -> SyncEventQueue {
         let config = Config::new(config::Environment::Development);

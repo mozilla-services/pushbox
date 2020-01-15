@@ -2,6 +2,7 @@
 authors = ["jrconlin <jconlin+git@mozilla.com>"]
 name = "pushbox"
 version = "0.2.0"
+edition = "2018"
 
 [dependencies]
 env_logger = "0.7.1"

@@ -4,13 +4,13 @@ use std::cmp;
 use std::collections::HashMap;
 use std::{thread, time};
 
-use auth::{AuthType, FxAAuthenticator};
-use config::ServerConfig;
-use db::models::DatabaseManager;
-use db::{self, Conn, MysqlPool};
-use error::{HandlerError, HandlerErrorKind, HandlerResult};
+use crate::auth::{AuthType, FxAAuthenticator};
+use crate::config::ServerConfig;
+use crate::db::models::DatabaseManager;
+use crate::db::{self, Conn, MysqlPool};
+use crate::error::{HandlerError, HandlerErrorKind, HandlerResult};
 use failure::Error;
-use logging::RBLogger;
+use crate::logging::RBLogger;
 use rocket::config;
 use rocket::fairing::AdHoc;
 use rocket::http::{Method, RawStr, Status};
@@ -19,7 +19,7 @@ use rocket::response::{content, status};
 use rocket::Outcome::Success;
 use rocket::{self, Request};
 use rocket_contrib::json::{Json, JsonValue};
-use sqs::{self, SyncEvent};
+use crate::sqs::{self, SyncEvent};
 
 /// An incoming Data Storage request.
 #[derive(Deserialize, Debug)]
@@ -416,7 +416,7 @@ mod test {
     use serde_json::Value;
 
     use super::Server;
-    use auth::FxAAuthenticator;
+    use crate::auth::FxAAuthenticator;
 
     #[derive(Debug, Deserialize)]
     struct WriteResp {

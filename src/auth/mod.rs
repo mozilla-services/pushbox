@@ -8,10 +8,10 @@ use rocket::request::{self, FromRequest};
 use rocket::Outcome::{Failure, Success};
 use rocket::{Request, State};
 
-use error::{HandlerError, HandlerErrorKind, VALIDATION_FAILED};
+use crate::error::{HandlerError, HandlerErrorKind, VALIDATION_FAILED};
 
-use config::ServerConfig;
-use logging::RBLogger;
+use crate::config::ServerConfig;
+use crate::logging::RBLogger;
 
 /// Fetch FxA scopes for a requests Authentication header.
 ///
@@ -283,9 +283,9 @@ mod test {
 
     use super::FxAAuthenticator;
     use crate::error::HandlerError;
-    use config::ServerConfig;
-    use error::HandlerResult;
-    use logging::RBLogger;
+    use crate::config::ServerConfig;
+    use crate::error::HandlerResult;
+    use crate::logging::RBLogger;
 
     struct StubServer {}
     impl StubServer {

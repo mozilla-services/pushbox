@@ -17,7 +17,7 @@ use rocket::request::{self, FromRequest};
 use rocket::{Config, Outcome, Request, State};
 
 use self::schema::pushboxv1;
-use error::Result;
+use crate::error::Result;
 
 pub type MysqlPool = Pool<ConnectionManager<MysqlConnection>>;
 
