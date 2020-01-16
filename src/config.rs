@@ -55,6 +55,11 @@ impl<'a, 'r> FromRequest<'a, 'r> for ServerConfig {
 
     /// Automagically reutrn the configuration from the guarded rocket data for a request handler
     fn from_request(req: &'a Request<'r>) -> request::Outcome<Self, ()> {
-        Outcome::Success(req.guard::<State<ServerConfig>>().unwrap().inner().clone())
+        Outcome::Success(
+            req.guard::<State<'_, ServerConfig>>()
+                .unwrap()
+                .inner()
+                .clone(),
+        )
     }
 }

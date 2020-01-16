@@ -2,16 +2,16 @@
 #![allow(unknown_lints)]
 use std::cmp;
 use std::collections::HashMap;
-use std::error::Error as StdError;
 use std::{thread, time};
 
-use auth::{AuthType, FxAAuthenticator};
-use config::ServerConfig;
-use db::models::DatabaseManager;
-use db::{self, Conn, MysqlPool};
-use error::{HandlerError, HandlerErrorKind, HandlerResult};
+use crate::auth::{AuthType, FxAAuthenticator};
+use crate::config::ServerConfig;
+use crate::db::models::DatabaseManager;
+use crate::db::{self, Conn, MysqlPool};
+use crate::error::{HandlerError, HandlerErrorKind, HandlerResult};
+use crate::logging::RBLogger;
+use crate::sqs::{self, SyncEvent};
 use failure::Error;
-use logging::RBLogger;
 use rocket::config;
 use rocket::fairing::AdHoc;
 use rocket::http::{Method, RawStr, Status};
@@ -19,8 +19,12 @@ use rocket::request::{self, FromRequest};
 use rocket::response::{content, status};
 use rocket::Outcome::Success;
 use rocket::{self, Request};
-use rocket_contrib::json::{Json, JsonValue};
-use sqs::{self, SyncEvent};
+use rocket_contrib::{
+    json,
+    json::{Json, JsonValue},
+};
+use serde_derive::Deserialize;
+use slog::{debug, error, info};
 
 /// An incoming Data Storage request.
 #[derive(Deserialize, Debug)]
@@ -75,12 +79,12 @@ impl Server {
         if !cfg!(test) {
             // if we're not running a test, spawn the SQS handler for account/device deletes
             thread::spawn(move || {
-                slog_debug!(sq_logger.log, "SQS Starting thread... ");
+                debug!(sq_logger.log, "SQS Starting thread... ");
                 let sqs_handler = sqs::SyncEventQueue::from_config(&sqs_config, &sq_logger);
                 loop {
                     if let Some(event) = sqs_handler.fetch() {
                         if let Err(e) = Server::process_message(&db_pool, &event) {
-                            slog_error!(sq_logger.log, "Could not process message"; "error" => e.to_string());
+                            error!(sq_logger.log, "Could not process message"; "error" => e.to_string());
                         };
                     } else {
                         // sleep 5m
@@ -96,7 +100,7 @@ impl Server {
                 let pool = db::pool_from_config(rocket.config()).expect("Could not get pool");
                 let rbconfig = ServerConfig::new(rocket.config());
                 let logger = RBLogger::new(rocket.config());
-                slog_info!(logger.log, "sLogging initialized...");
+                info!(logger.log, "sLogging initialized...");
                 Ok(rocket.manage(rbconfig).manage(pool).manage(logger))
             }))
             .mount("/v1/store", routes![read, write, delete, delete_user])
@@ -221,10 +225,10 @@ fn read<'r>(
     // against FxA and the method, and either returns OK or an error. We need to reraise it to the
     // handler.
     let request_id = headers.headers.get("request_id");
-    slog_debug!(logger.log, "Handling Read";
-                "user_id" => &user_id,
-                "device_id" => &device_id,
-                "request_id" => &request_id,
+    debug!(logger.log, "Handling Read";
+           "user_id" => &user_id,
+           "device_id" => &device_id,
+           "request_id" => &request_id,
     );
     check_token(&config, Method::Get, &device_id, &token)?;
     let max_index = DatabaseManager::max_index(&conn, &user_id, &device_id)?;
@@ -237,18 +241,18 @@ fn read<'r>(
             // New entry, needs all data
             index = None;
             limit = None;
-            slog_debug!(logger.log, "Welcome new user";
-            "user_id" => &user_id,
-            "request_id" => &request_id
+            debug!(logger.log, "Welcome new user";
+                   "user_id" => &user_id,
+                   "request_id" => &request_id
             );
         }
         "lost" => {
             // Just lost, needs just the next index.
             index = None;
             limit = Some(0);
-            slog_debug!(logger.log, "Sorry, you're lost";
-            "user_id" => &user_id,
-            "request_id" => &request_id
+            debug!(logger.log, "Sorry, you're lost";
+                   "user_id" => &user_id,
+                   "request_id" => &request_id
             );
         }
         _ => {}
@@ -259,10 +263,10 @@ fn read<'r>(
     for message in &messages {
         msg_max = cmp::max(msg_max, message.idx as u64);
     }
-    slog_debug!(logger.log, "Found messages";
-                "len" => messages.len(),
-                "user_id" => &user_id,
-                "request_id" => &request_id
+    debug!(logger.log, "Found messages";
+           "len" => messages.len(),
+           "user_id" => &user_id,
+           "request_id" => &request_id
     );
     // returns json {"status":200, "index": max_index, "messages":[{"index": #, "data": String}, ...]}
     let is_last = match limit {
@@ -310,16 +314,16 @@ fn write(
         .unwrap_or(false)
     {
         // Auth testing, do not write to db.
-        slog_info!(logger.log, "Auth Skipping database check.");
+        info!(logger.log, "Auth Skipping database check.");
         return Ok(json!({
             "status": 200,
             "index": -1,
         }));
     }
-    slog_debug!(logger.log, "Writing new record:";
-    "user_id" => &user_id,
-    "device_id" => &device_id,
-    "request_id" => &request_id
+    debug!(logger.log, "Writing new record:";
+           "user_id" => &user_id,
+           "device_id" => &device_id,
+           "request_id" => &request_id
     );
     let response = DatabaseManager::new_record(
         &conn,
@@ -379,20 +383,24 @@ fn version() -> content::Json<&'static str> {
 }
 
 #[get("/__heartbeat__")]
-fn heartbeat(conn: Conn, config: ServerConfig) -> status::Custom<JsonValue> {
-    let (status, db_msg) = match db::health_check(&*conn) {
-        Ok(_) => (Status::Ok, "ok".to_owned()),
-        Err(e) => (Status::ServiceUnavailable, e.description().to_owned()),
+fn heartbeat(conn: Conn, config: ServerConfig, logger: RBLogger) -> status::Custom<JsonValue> {
+    let status = if let Err(e) = db::health_check(&*conn) {
+        let status = Status::ServiceUnavailable;
+        error!(logger.log, "Database heartbeat failed {}", e; "code" => status.code);
+        status
+    } else {
+        Status::Ok
     };
     // XXX: maybe add a health check for SQS
 
+    let msg = if status == Status::Ok { "ok" } else { "error" };
     status::Custom(
         status,
         json!({
-            "status": if status == Status::Ok { "ok" } else { "error" },
+            "status": msg,
             "code": status.code,
             "fxa_auth": config.fxa_host,
-            "database": db_msg,
+            "database": msg,
         }),
     )
 }
@@ -410,10 +418,11 @@ mod test {
     use rocket::http::Header;
     use rocket::local::Client;
     use rocket_contrib::json::JsonValue;
+    use serde_derive::Deserialize;
     use serde_json::Value;
 
     use super::Server;
-    use auth::FxAAuthenticator;
+    use crate::auth::FxAAuthenticator;
 
     #[derive(Debug, Deserialize)]
     struct WriteResp {

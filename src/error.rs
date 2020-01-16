@@ -13,7 +13,7 @@ use failure::{Backtrace, Context, Error, Fail};
 use rocket::http::Status;
 use rocket::response::{Responder, Response};
 use rocket::{response, Request};
-use rocket_contrib::json::Json;
+use rocket_contrib::{json, json::Json};
 
 pub type Result<T> = result::Result<T, Error>;
 
@@ -113,7 +113,7 @@ impl Fail for HandlerError {
 }
 
 impl fmt::Display for HandlerError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Display::fmt(&self.inner, f)
     }
 }
@@ -132,7 +132,7 @@ impl From<Context<HandlerErrorKind>> for HandlerError {
 
 /// Generate HTTP error responses for HandlerErrors
 impl<'r> Responder<'r> for HandlerError {
-    fn respond_to(self, request: &Request) -> response::Result<'r> {
+    fn respond_to(self, request: &Request<'_>) -> response::Result<'r> {
         let status = self.kind().http_status();
         let json = Json(json!({
             "code": status.code,

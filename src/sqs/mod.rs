@@ -9,10 +9,11 @@ use rocket::Config;
 use rusoto_core::Region;
 use rusoto_sqs::{DeleteMessageRequest, Message, ReceiveMessageRequest, Sqs, SqsClient};
 use serde_json;
+use slog::{debug, warn};
 
-use error::Result;
+use crate::error::Result;
+use crate::logging::RBLogger;
 use failure::{self, err_msg};
-use logging::RBLogger;
 
 /// An SQS FxA event.
 #[derive(Default, Debug, Clone)]
@@ -84,7 +85,7 @@ impl SyncEventQueue {
         let mut request = DeleteMessageRequest::default();
         request.queue_url = self.url.clone();
         request.receipt_handle = event.handle.clone();
-        slog_debug!(self.logger.log, "SQS Acking message {:?}", request);
+        debug!(self.logger.log, "SQS Acking message {:?}", request);
         sqs.delete_message(request)
             .with_timeout(Duration::new(1, 0))
             .sync()?;
@@ -104,23 +105,23 @@ impl SyncEventQueue {
         {
             Ok(r) => r,
             Err(e) => {
-                slog_warn!(self.logger.log, "SQS Rec'v Error: {:?}", e);
+                warn!(self.logger.log, "SQS Rec'v Error: {:?}", e);
                 return None;
             }
         };
-        slog_debug!(self.logger.log, "SQS Got message; {:?}", response);
+        debug!(self.logger.log, "SQS Got message; {:?}", response);
         if let Some(m) = response.messages {
-            slog_debug!(self.logger.log, "SQS Messages {:?}", m);
+            debug!(self.logger.log, "SQS Messages {:?}", m);
             let event = match SyncEvent::try_from(m[0].clone()) {
                 Ok(ev) => ev,
                 Err(err) => {
-                    slog_warn!(self.logger.log, "SQS Could not understand event: {:?}", err);
+                    warn!(self.logger.log, "SQS Could not understand event: {:?}", err);
                     return None;
                 }
             };
-            slog_debug!(self.logger.log, "SQS event: {:?}", event);
+            debug!(self.logger.log, "SQS event: {:?}", event);
             self.ack_message(&event).unwrap_or_else(|e| {
-                slog_warn!(self.logger.log, "SQS could not ack message: {:?}", e);
+                warn!(self.logger.log, "SQS could not ack message: {:?}", e);
             });
             if event.event.to_lowercase() == "delete"
                 || event.event.to_lowercase() == "device:delete"
@@ -143,12 +144,13 @@ mod test {
     use std::time::Duration;
 
     use rocket::config::{self, Config, Table, Value};
+    use rocket_contrib::json;
     use rusoto_core::Region;
     use rusoto_sqs::{self, Message, Sqs, SqsClient};
 
     use super::{SyncEvent, SyncEventQueue};
-    use error::Result;
-    use logging::RBLogger;
+    use crate::error::Result;
+    use crate::logging::RBLogger;
 
     fn setup(queue_url: String) -> SyncEventQueue {
         let config = Config::new(config::Environment::Development);

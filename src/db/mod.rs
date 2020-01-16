@@ -17,7 +17,7 @@ use rocket::request::{self, FromRequest};
 use rocket::{Config, Outcome, Request, State};
 
 use self::schema::pushboxv1;
-use error::Result;
+use crate::error::Result;
 
 pub type MysqlPool = Pool<ConnectionManager<MysqlConnection>>;
 
@@ -81,7 +81,7 @@ impl<'a, 'r> FromRequest<'a, 'r> for Conn {
     type Error = ();
 
     fn from_request(request: &'a Request<'r>) -> request::Outcome<Self, ()> {
-        let pool = request.guard::<State<MysqlPool>>()?;
+        let pool = request.guard::<State<'_, MysqlPool>>()?;
         match pool.get() {
             Ok(conn) => Outcome::Success(Conn(conn)),
             Err(_) => Outcome::Failure((Status::ServiceUnavailable, ())),
