@@ -6,9 +6,7 @@ services:
             - db_data:/var/lib/mysql
         restart: always
         ports:
-            - "4306:3306"
-            - "5567:5567"
-            - "5568:5568"
+            - "3306"
         environment:
             #MYSQL_RANDOM_ROOT_PASSWORD: yes
             MYSQL_ROOT_PASSWORD: random
@@ -18,12 +16,13 @@ services:
 
     app:
         build: .
+        restart: always
         ports:
           - "8000:8000"
         depends_on:
           - db
         environment:
-          ROCKET_DATABASE_URL: mysql://test:test@db:4306/pushbox
+          ROCKET_DATABASE_URL: mysql://test:test@db:3306/pushbox
 
 volumes:
     db_data:
