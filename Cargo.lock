@@ -1633,7 +1633,7 @@ dependencies = [
 
 [[package]]
 name = "pushbox"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "diesel 1.4.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "diesel_migrations 1.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
