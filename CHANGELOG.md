@@ -1,3 +1,37 @@
+<a name="0.3.0"></a>
+## 0.3.0 (2020-02-29)
+
+
+#### Refactor
+
+*   cleanup no longer needed code ([a629a78c](https://github.com/mozilla-services/pushbox/commit/a629a78c6929c41750099f9e5b0283bd87d06b40))
+
+#### Bug Fixes
+
+*   fix query param handling per rocket 0.4 changes ([db6c36a7](https://github.com/mozilla-services/pushbox/commit/db6c36a769b33da5239f392ef58ab5dbd92c5256), closes [#61](https://github.com/mozilla-services/pushbox/issues/61))
+
+#### Features
+
+*   Differentiate GeneralError into more specific errors ([f328d882](https://github.com/mozilla-services/pushbox/commit/f328d882f6e568769b1148cde8b2ab4315766412), closes [#59](https://github.com/mozilla-services/pushbox/issues/59))
+
+#### Chore
+
+*   fix the mysql port ([3aca62a6](https://github.com/mozilla-services/pushbox/commit/3aca62a6eeeba62e0414ede3f67777006e19dd8e), closes [#65](https://github.com/mozilla-services/pushbox/issues/65))
+*   cargo fix --edition-idioms ([51c1ea16](https://github.com/mozilla-services/pushbox/commit/51c1ea16f923090ea7eda931445565400ceb735c))
+*   cargo fix --edition ([c7e2312f](https://github.com/mozilla-services/pushbox/commit/c7e2312fc868dea9292fe5f9639f15b39b82557d))
+*   update deps ([733f6ac7](https://github.com/mozilla-services/pushbox/commit/733f6ac7cd6616bb21725fafae88c1180de4442c), closes [#63](https://github.com/mozilla-services/pushbox/issues/63))
+*   update rust nightly ([6b24ecc8](https://github.com/mozilla-services/pushbox/commit/6b24ecc8654cc040ff82b651f20a2c7bcef92f22))
+*   Dependency Update 10/2019 ([e9c1f043](https://github.com/mozilla-services/pushbox/commit/e9c1f043793d2ca60f444f713d2f8e935b668731))
+*   Update deps ([0e426b0b](https://github.com/mozilla-services/pushbox/commit/0e426b0b332d18ea239bc34c09a0188a783b6332))
+*   Update cargo deps ([40f3688a](https://github.com/mozilla-services/pushbox/commit/40f3688a78bc92fd2332c7016e5d7e8b586c2332))
+*   Update dependencies ([b93d9183](https://github.com/mozilla-services/pushbox/commit/b93d9183cccac835912fbc0cb19cbf6cfe23ff35), closes [#53](https://github.com/mozilla-services/pushbox/issues/53))
+*   Add Code of Conduct ([4b803d62](https://github.com/mozilla-services/pushbox/commit/4b803d6249568b4054a1df59a7db488852afb358))
+*   library updates ([adad9ee4](https://github.com/mozilla-services/pushbox/commit/adad9ee40d9be32b2055cd845b74a82ccc31ee99))
+*   remove /sls and add .dockerignore ([505bb197](https://github.com/mozilla-services/pushbox/commit/505bb19714de0d02fc22cf2eba15aba9080b90b1), closes [#46](https://github.com/mozilla-services/pushbox/issues/46))
+*   utilize a rust-toolchain file ([2b65c02c](https://github.com/mozilla-services/pushbox/commit/2b65c02c42b77cacae9da61d3bb6cc1af98ac7b4))
+
+
+
 <a name="0.1.2"></a>
 ## 0.1.2 (2018-08-21)
 
