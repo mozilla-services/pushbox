@@ -1,3 +1,8 @@
+[![License: MPL 2.0][mpl-svg]][mpl]
+[![Test Status][travis-badge]][travis]
+[![Build Status][circleci-badge]][circleci]
+[![Connect to Matrix via the Riot webapp][matrix-badge]][matrix]
+
 # Pushbox - A rust implementation of Push/Sync long term storage
 
 ## What is it?
@@ -170,3 +175,12 @@ DELETE from pushboxv1 where TTL < unix_timestamp();
 ```
 
 This function may be added to pushbox at a later date.
+
+[mpl-svg]: https://img.shields.io/badge/License-MPL%202.0-blue.svg
+[mpl]: https://opensource.org/licenses/MPL-2.0
+[travis-badge]: https://travis-ci.org/mozilla-services/pushbox.svg?branch=master
+[travis]: https://travis-ci.org/mozilla-services/pushbox
+[circleci-badge]: https://circleci.com/gh/mozilla-services/pushbox.svg?style=shield&circle-token=074ae89011d1a7601378c41a4351e1e03f1e8177
+[circleci]: https://circleci.com/gh/mozilla-services/pushbox
+[matrix-badge]: https://img.shields.io/badge/chat%20on%20[m]-%23push%3Amozilla.org-blue
+[matrix]: https://chat.mozilla.org/#/room/#push:mozilla.org
