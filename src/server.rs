@@ -1,7 +1,9 @@
 //! Handle incoming HTTP requests.
 #![allow(unknown_lints)]
+use futures::executor::block_on;
 use std::cmp;
 use std::collections::HashMap;
+use std::error::Error;
 use std::{thread, time};
 
 use crate::auth::{AuthType, FxAAuthenticator};
@@ -11,7 +13,6 @@ use crate::db::{self, Conn, MysqlPool};
 use crate::error::{HandlerError, HandlerErrorKind, HandlerResult};
 use crate::logging::RBLogger;
 use crate::sqs::{self, SyncEvent};
-use failure::Error;
 use rocket::config;
 use rocket::fairing::AdHoc;
 use rocket::http::{Method, RawStr, Status};
@@ -61,8 +62,10 @@ impl<'a, 'r> FromRequest<'a, 'r> for HeaderInfo {
 pub struct Server {}
 
 impl Server {
-    fn process_message(pool: &MysqlPool, event: &SyncEvent) -> Result<(), Error> {
-        let conn = &pool.get()?;
+    fn process_message(pool: &MysqlPool, event: &SyncEvent) -> Result<(), HandlerError> {
+        let conn = &pool
+            .get()
+            .map_err(|e| HandlerErrorKind::GeneralError(e.to_string()))?;
         db::models::DatabaseManager::delete(&conn, &event.uid, &event.id)?;
         Ok(())
     }
@@ -70,7 +73,7 @@ impl Server {
     /// Initialize the server and prepare it for running. This will run any r2d2 embedded
     /// migrations required, create various guarded pool objects, and start the SQS handler
     /// (unless we're testing)
-    pub fn start(rocket: rocket::Rocket) -> Result<rocket::Rocket, Error> {
+    pub fn start(rocket: rocket::Rocket) -> Result<rocket::Rocket, HandlerError> {
         db::run_embedded_migrations(rocket.config())?;
 
         let db_pool = db::pool_from_config(rocket.config()).expect("Could not get pool");
@@ -82,7 +85,7 @@ impl Server {
                 debug!(sq_logger.log, "SQS Starting thread... ");
                 let sqs_handler = sqs::SyncEventQueue::from_config(&sqs_config, &sq_logger);
                 loop {
-                    if let Some(event) = sqs_handler.fetch() {
+                    if let Some(event) = block_on(sqs_handler.fetch()) {
                         if let Err(e) = Server::process_message(&db_pool, &event) {
                             error!(sq_logger.log, "Could not process message"; "error" => e.to_string());
                         };
