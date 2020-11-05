@@ -3,7 +3,6 @@
 use std::convert::TryFrom;
 use std::env;
 use std::rc::Rc;
-use std::time::Duration;
 
 use rocket::Config;
 use rusoto_core::Region;

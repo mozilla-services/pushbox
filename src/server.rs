@@ -3,7 +3,6 @@
 use futures::executor::block_on;
 use std::cmp;
 use std::collections::HashMap;
-use std::error::Error;
 use std::{thread, time};
 
 use crate::auth::{AuthType, FxAAuthenticator};
