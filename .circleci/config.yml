@@ -5,11 +5,26 @@
 # DOCKER_USER
 # DOCKER_PASS
 #
-version: 2
+version: 2.1
+
+defaults:
+  docker_login: &docker_login
+      run:
+          name: Login to Dockerhub
+          command: |
+              if [ "${DOCKER_USER}" == "" ] || [ "${DOCKER_PASS}" == "" ]; then
+                  echo "Skipping Login to Dockerhub, no credentials."
+              else
+                  echo "${DOCKER_PASS}" | docker login -u="${DOCKER_USER}" --password-stdin
+              fi
+
 jobs:
   build:
     docker:
       - image: docker:18.03.0-ce
+        auth:
+          username: $DOCKER_USER
+          password: $DOCKER_PASS
     working_directory: /dockerflow
     steps:
       - run:
@@ -17,7 +32,7 @@ jobs:
           command: apk add --no-cache openssh-client git
       - checkout
       - setup_remote_docker
-
+      - *docker_login
       - run:
           name: Create a version.json
           command: |
@@ -46,8 +61,12 @@ jobs:
   deploy:
     docker:
       - image: docker:18.03.0-ce
+        auth:
+          username: $DOCKER_USER
+          password: $DOCKER_PASS
     steps:
       - setup_remote_docker
+      - *docker_login
       - restore_cache:
           key: v1-{{.Branch}}
       - run:

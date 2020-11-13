@@ -16,7 +16,6 @@ RUN \
 
 FROM debian:buster-slim
 # FROM debian:buster  # for debugging docker build
-MAINTAINER <src+pushbox@jrconlin.com>
 RUN \
     groupadd --gid 10001 app && \
     useradd --uid 10001 --gid 10001 --home /app --create-home app && \
