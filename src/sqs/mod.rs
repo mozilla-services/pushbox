@@ -3,12 +3,14 @@
 use std::convert::TryFrom;
 use std::env;
 use std::rc::Rc;
+use std::time::Duration;
 
 use rocket::Config;
 use rusoto_core::Region;
 use rusoto_sqs::{DeleteMessageRequest, Message, ReceiveMessageRequest, Sqs, SqsClient};
 use serde_json;
 use slog::{debug, warn};
+use tokio::time::timeout;
 
 use crate::error::{HandlerError, HandlerErrorKind, Result};
 use crate::logging::RBLogger;
@@ -87,8 +89,9 @@ impl SyncEventQueue {
         request.queue_url = self.url.clone();
         request.receipt_handle = event.handle.clone();
         debug!(self.logger.log, "SQS Acking message {:?}", request);
-        sqs.delete_message(request)
+        timeout(Duration::from_secs(1), sqs.delete_message(request))
             .await
+            .map_err(|e| HandlerErrorKind::GeneralError(e.to_string()))?
             .map_err(|e| HandlerErrorKind::GeneralError(e.to_string()))?;
         Ok(())
     }
@@ -99,8 +102,14 @@ impl SyncEventQueue {
         // capture response via retry_if(move||{..})
         let mut request = ReceiveMessageRequest::default();
         request.queue_url = self.url.clone();
-        let response = match sqs.receive_message(request).await {
-            Ok(r) => r,
+        let response = match timeout(Duration::from_secs(1), sqs.receive_message(request)).await {
+            Ok(r) => match r {
+                Ok(r) => r,
+                Err(e) => {
+                    warn!(self.logger.log, "SQS timed out: {:?}", e);
+                    return None;
+                }
+            },
             Err(e) => {
                 warn!(self.logger.log, "SQS Rec'v Error: {:?}", e);
                 return None;
@@ -145,9 +154,10 @@ mod test {
     use rocket_contrib::json;
     use rusoto_core::Region;
     use rusoto_sqs::{self, Message, Sqs, SqsClient};
+    use tokio::time::timeout;
 
     use super::{SyncEvent, SyncEventQueue};
-    use crate::error::{HandlerError, HandlerErrorKind, Result};
+    use crate::error::Result;
     use crate::logging::RBLogger;
 
     fn setup(queue_url: String) -> SyncEventQueue {
@@ -213,7 +223,12 @@ mod test {
         let mut request = rusoto_sqs::DeleteQueueRequest::default();
         request.queue_url = queue_url.clone();
         // Try a few times because, again, AWS needs time for these things...
-        match queue.sqs.clone().delete_queue(request).await {
+        match timeout(
+            Duration::from_secs(1),
+            queue.sqs.clone().delete_queue(request),
+        )
+        .await
+        {
             Ok(_) => return,
             Err(err) => {
                 println!("Oops: {:?}, try:{:?}", err, count);
