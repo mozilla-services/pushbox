@@ -138,20 +138,6 @@ impl fmt::Display for HandlerError {
     }
 }
 
-/*
-impl From<HandlerErrorKind> for HandlerError {
-    fn from(kind: HandlerErrorKind) -> HandlerError {
-        Context::new(kind).into()
-    }
-}
-
-impl From<Context<HandlerErrorKind>> for HandlerError {
-    fn from(inner: Context<HandlerErrorKind>) -> HandlerError {
-        HandlerError { inner }
-    }
-}
-*/
-
 /// Generate HTTP error responses for HandlerErrors
 impl<'r> Responder<'r> for HandlerError {
     fn respond_to(self, request: &Request<'_>) -> response::Result<'r> {
