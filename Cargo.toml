@@ -5,9 +5,10 @@ version = "0.3.0"
 edition = "2018"
 
 [dependencies]
+cadence = "0.22"
 env_logger = "0.8"
 futures = "0.3"
-mysql = "20.0"
+mysql = "20.1"
 rand = "0.7.3"
 rand_core = "0.5.1"
 reqwest = { version = "0.10", features = ["blocking", "gzip", "json"] }
@@ -33,3 +34,4 @@ percent-encoding= "2.1.0"
 thiserror="1.0"
 backtrace="0.3"
 tokio = { version = "0.3.5", features = ["time"]}
+sentry = { version = "0.19", features=["with_curl_transport", "failure"]}

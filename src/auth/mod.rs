@@ -3,7 +3,6 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use reqwest;
 use rocket::request::{self, FromRequest};
 use rocket::Outcome::{Failure, Success};
 use rocket::{Request, State};
@@ -176,7 +175,7 @@ impl FxAAuthenticator {
         };
         Success(FxAAuthenticator {
             auth_type: AuthType::FxAOauth,
-            scope: resp.scope.clone(),
+            scope: resp.scope,
         })
     }
 
@@ -243,11 +242,11 @@ impl<'a, 'r> FromRequest<'a, 'r> for FxAAuthenticator {
             match auth_bits[0].to_lowercase().as_str() {
                 "bearer" | "fxa-oauth-token" => {
                     debug!(logger.log, "Found Oauth token");
-                    return Self::from_fxa_oauth(auth_bits[1].into(), config, logger);
+                    Self::from_fxa_oauth(auth_bits[1].into(), config, logger)
                 }
                 "fxa-server-key" => {
                     debug!(logger.log, "Found Server Token");
-                    return Self::from_server_token(auth_bits[1].into(), config, logger);
+                    Self::from_server_token(auth_bits[1].into(), config, logger)
                 }
                 _ => {
                     let err = HandlerErrorKind::InvalidAuthBadSchema;
@@ -255,7 +254,7 @@ impl<'a, 'r> FromRequest<'a, 'r> for FxAAuthenticator {
                           "code" => err.http_status().code,
                           "errno" => err.errno(),
                     );
-                    return Failure((VALIDATION_FAILED, err.into()));
+                    Failure((VALIDATION_FAILED, err.into()))
                 }
             }
         } else {
@@ -266,7 +265,7 @@ impl<'a, 'r> FromRequest<'a, 'r> for FxAAuthenticator {
                   "code" => err.http_status().code,
                   "errno" => err.errno()
             );
-            return Failure((VALIDATION_FAILED, err.into()));
+            Failure((VALIDATION_FAILED, err.into()))
         }
     }
 }

@@ -20,8 +20,10 @@ pub mod config;
 pub mod db;
 mod error;
 mod logging;
+mod metrics;
 pub mod server;
 pub mod sqs;
+mod tags;
 
 fn main() {
     let rocket_serv = server::Server::start(rocket::ignite());
