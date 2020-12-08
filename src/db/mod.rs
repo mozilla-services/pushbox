@@ -10,14 +10,13 @@ use diesel::r2d2::{ConnectionManager, Pool, PooledConnection};
 use diesel::{
     dsl::sql, result::Error as DieselError, sql_types::Integer, Connection, QueryDsl, RunQueryDsl,
 };
-use failure::err_msg;
 
 use rocket::http::Status;
 use rocket::request::{self, FromRequest};
 use rocket::{Config, Outcome, Request, State};
 
 use self::schema::pushboxv1;
-use crate::error::Result;
+use crate::error::{HandlerErrorKind, Result};
 
 pub type MysqlPool = Pool<ConnectionManager<MysqlConnection>>;
 
@@ -30,10 +29,13 @@ embed_migrations!();
 pub fn run_embedded_migrations(config: &Config) -> Result<()> {
     let database_url = config
         .get_str("database_url")
-        .map_err(|_| err_msg("Invalid or undefined ROCKET_DATABASE_URL"))?
+        .map_err(|_| {
+            HandlerErrorKind::GeneralError("Invalid or undefined ROCKET_DATABASE_URL".to_string())
+        })?
         .to_string();
-    let conn = MysqlConnection::establish(&database_url)?;
-    embedded_migrations::run(&conn)?;
+    let conn =
+        MysqlConnection::establish(&database_url).map_err(|_| HandlerErrorKind::ServiceErrorDB)?;
+    embedded_migrations::run(&conn).map_err(|_| HandlerErrorKind::ServiceErrorDB)?;
     Ok(())
 }
 
@@ -45,11 +47,14 @@ pub fn run_embedded_migrations(config: &Config) -> Result<()> {
 pub fn pool_from_config(config: &Config) -> Result<MysqlPool> {
     let database_url = config
         .get_str("database_url")
-        .map_err(|_| err_msg("ROCKET_DATABASE_URL undefined"))?
+        .map_err(|_| HandlerErrorKind::GeneralError("ROCKET_DATABASE_URL undefined".to_string()))?
         .to_string();
     let max_size = config.get_int("database_pool_max_size").unwrap_or(10) as u32;
     let manager = ConnectionManager::<MysqlConnection>::new(database_url);
-    let pman = Pool::builder().max_size(max_size).build(manager)?;
+    let pman = Pool::builder()
+        .max_size(max_size)
+        .build(manager)
+        .map_err(|e| HandlerErrorKind::GeneralError(e.to_string()))?;
     Ok(pman)
 }
 

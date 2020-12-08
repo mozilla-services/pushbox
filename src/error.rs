@@ -6,16 +6,18 @@
 /// request guards' fields).
 ///
 /// HandlerErrors are rocket Responders (render their own error responses).
+use backtrace::Backtrace;
+use std::error::Error;
 use std::fmt;
 use std::result;
 
-use failure::{Backtrace, Context, Error, Fail};
 use rocket::http::Status;
 use rocket::response::{Responder, Response};
 use rocket::{response, Request};
 use rocket_contrib::{json, json::Json};
+use thiserror::Error;
 
-pub type Result<T> = result::Result<T, Error>;
+pub type Result<T> = result::Result<T, HandlerError>;
 
 pub type HandlerResult<T> = result::Result<T, HandlerError>;
 
@@ -25,40 +27,41 @@ pub const VALIDATION_FAILED: Status = Status::InternalServerError;
 
 #[derive(Debug)]
 pub struct HandlerError {
-    inner: Context<HandlerErrorKind>,
+    kind: HandlerErrorKind,
+    backtrace: Backtrace,
 }
 
-#[derive(Clone, Eq, PartialEq, Debug, Fail)]
+#[derive(Clone, Eq, PartialEq, Debug, Error)]
 pub enum HandlerErrorKind {
     /// 401 Unauthorized
-    #[fail(display = "Missing authorization header")]
+    #[error("Missing authorization header")]
     MissingAuth,
-    #[fail(display = "Invalid authorization header: Incorrect Authorization Header Token")]
+    #[error("Invalid authorization header: Incorrect Authorization Header Token")]
     InvalidAuthBadToken,
-    #[fail(display = "Invalid authorization header: Incorrect Authorization Schema")]
+    #[error("Invalid authorization header: Incorrect Authorization Schema")]
     InvalidAuthBadSchema,
-    #[fail(display = "Unauthorized: Invalid Authorization token")]
+    #[error("Unauthorized: Invalid Authorization token")]
     UnauthorizedBadToken,
-    #[fail(display = "Unauthorized: Missing Authorization Header")]
+    #[error("Unauthorized: Missing Authorization Header")]
     UnauthorizedNoHeader,
-    #[fail(display = "Invalid Option: Bad index: {:?}", _0)]
+    #[error("Invalid Option: Bad index: {:?}", _0)]
     InvalidOptionIndex(String),
-    #[fail(display = "Invalid Option: Bad limit: {:?}", _0)]
+    #[error("Invalid Option: Bad limit: {:?}", _0)]
     InvalidOptionLimit(String),
-    #[fail(display = "Invalid Option: Bad Status: {:?}", _0)]
+    #[error("Invalid Option: Bad Status: {:?}", _0)]
     InvalidOptionStatus(String),
-    #[fail(display = "Unauthorized: FxA Error: {:?}", _0)]
+    #[error("Unauthorized: FxA Error: {:?}", _0)]
     ServiceErrorFxA(String),
     // 404 Not Found
-    //#[fail(display = "Not Found")]
+    //#[error("Not Found")]
     //NotFound,
-    #[fail(display = "A database error occurred")]
+    #[error("A database error occurred")]
     ServiceErrorDB,
-    #[fail(display = "General error: {:?}", _0)]
+    #[error("General error: {:?}", _0)]
     GeneralError(String),
     // Note: Make sure that if display has an argument, the label includes the argument,
     // otherwise the process macro parser will fail on `derive(Fail)`
-    //#[fail(display = "Unexpected rocket error: {:?}", _0)]
+    //#[error("Unexpected rocket error: {:?}", _0)]
     //RocketError(rocket::Error), // rocket::Error isn't a std Error (so no #[cause])
     // Application Errors
 }
@@ -98,35 +101,40 @@ impl HandlerErrorKind {
 
 impl HandlerError {
     pub fn kind(&self) -> &HandlerErrorKind {
-        self.inner.get_context()
+        &self.kind
     }
 }
 
-impl Fail for HandlerError {
-    fn cause(&self) -> Option<&dyn Fail> {
-        self.inner.cause()
+impl Error for HandlerError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        self.kind.source()
     }
+}
 
-    fn backtrace(&self) -> Option<&Backtrace> {
-        self.inner.backtrace()
+impl<T> From<T> for HandlerError
+where
+    HandlerErrorKind: From<T>,
+{
+    fn from(item: T) -> Self {
+        HandlerError {
+            kind: HandlerErrorKind::from(item),
+            backtrace: Backtrace::new(),
+        }
     }
 }
 
 impl fmt::Display for HandlerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fmt::Display::fmt(&self.inner, f)
-    }
-}
+        write!(f, "Error: {}\nBacktrace:\n{:?}", self.kind, self.backtrace)?;
 
-impl From<HandlerErrorKind> for HandlerError {
-    fn from(kind: HandlerErrorKind) -> HandlerError {
-        Context::new(kind).into()
-    }
-}
+        // Go down the chain of errors
+        let mut error: &dyn Error = &self.kind;
+        while let Some(source) = error.source() {
+            write!(f, "\n\nCaused by: {}", source)?;
+            error = source;
+        }
 
-impl From<Context<HandlerErrorKind>> for HandlerError {
-    fn from(inner: Context<HandlerErrorKind>) -> HandlerError {
-        HandlerError { inner }
+        Ok(())
     }
 }
 

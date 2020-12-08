@@ -6,7 +6,6 @@ use diesel::{
     self, insert_into, Connection, ExpressionMethods, Insertable, OptionalExtension, QueryDsl,
     Queryable, RunQueryDsl,
 };
-use failure::ResultExt;
 use serde::ser::{Serialize, SerializeStruct, Serializer};
 
 use super::schema::pushboxv1;
@@ -70,7 +69,7 @@ impl DatabaseManager {
             .order(pushboxv1::idx.desc())
             .first::<i64>(conn)
             .optional()
-            .context(HandlerErrorKind::ServiceErrorDB)?
+            .map_err(|_| HandlerErrorKind::ServiceErrorDB)?
             .unwrap_or(0);
         Ok(max_index as u64)
     }
@@ -98,7 +97,7 @@ impl DatabaseManager {
                     .order(pushboxv1::idx.desc())
                     .first::<i64>(conn)
             })
-            .context(HandlerErrorKind::ServiceErrorDB)?;
+            .map_err(|_| HandlerErrorKind::ServiceErrorDB)?;
         Ok(record_index as u64)
     }
 
@@ -133,7 +132,7 @@ impl DatabaseManager {
         Ok(query
             .order(pushboxv1::idx)
             .load::<Record>(conn)
-            .context(HandlerErrorKind::ServiceErrorDB)?
+            .map_err(|_| HandlerErrorKind::ServiceErrorDB)?
             .into_iter()
             .collect())
     }
@@ -146,7 +145,7 @@ impl DatabaseManager {
         }
         query
             .execute(conn)
-            .context(HandlerErrorKind::ServiceErrorDB)?;
+            .map_err(|_| HandlerErrorKind::ServiceErrorDB)?;
         Ok(())
     }
 }

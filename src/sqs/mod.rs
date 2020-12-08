@@ -10,10 +10,10 @@ use rusoto_core::Region;
 use rusoto_sqs::{DeleteMessageRequest, Message, ReceiveMessageRequest, Sqs, SqsClient};
 use serde_json;
 use slog::{debug, warn};
+use tokio::time::timeout;
 
-use crate::error::Result;
+use crate::error::{HandlerError, HandlerErrorKind, Result};
 use crate::logging::RBLogger;
-use failure::{self, err_msg};
 
 /// An SQS FxA event.
 #[derive(Default, Debug, Clone)]
@@ -29,11 +29,14 @@ pub struct SyncEvent {
 }
 
 impl TryFrom<Message> for SyncEvent {
-    type Error = failure::Error;
+    type Error = HandlerError;
 
     fn try_from(msg: Message) -> Result<Self> {
-        let body = msg.body.ok_or_else(|| err_msg("Missing body"))?;
-        let parsed: serde_json::Value = serde_json::from_str(&body)?;
+        let body = msg
+            .body
+            .ok_or_else(|| HandlerErrorKind::ServiceErrorFxA("Missing body".to_owned()))?;
+        let parsed: serde_json::Value = serde_json::from_str(&body)
+            .map_err(|e| HandlerErrorKind::ServiceErrorFxA(e.to_string()))?;
         Ok(Self {
             event: parsed["event"].as_str().unwrap_or("").to_owned(),
             uid: parsed["uid"].as_str().unwrap_or("").to_owned(),
@@ -80,30 +83,33 @@ impl SyncEventQueue {
     }
 
     /// Acknowledge a received SQS message by deleting it from the queue.
-    pub fn ack_message(&self, event: &SyncEvent) -> Result<()> {
+    pub async fn ack_message(&self, event: &SyncEvent) -> Result<()> {
         let sqs = self.sqs.clone();
         let mut request = DeleteMessageRequest::default();
         request.queue_url = self.url.clone();
         request.receipt_handle = event.handle.clone();
         debug!(self.logger.log, "SQS Acking message {:?}", request);
-        sqs.delete_message(request)
-            .with_timeout(Duration::new(1, 0))
-            .sync()?;
+        timeout(Duration::from_secs(1), sqs.delete_message(request))
+            .await
+            .map_err(|e| HandlerErrorKind::GeneralError(e.to_string()))?
+            .map_err(|e| HandlerErrorKind::GeneralError(e.to_string()))?;
         Ok(())
     }
 
     /// Fetch message from sqs
-    pub fn fetch(&self) -> Option<SyncEvent> {
+    pub async fn fetch(&self) -> Option<SyncEvent> {
         let sqs = self.sqs.clone();
         // capture response via retry_if(move||{..})
         let mut request = ReceiveMessageRequest::default();
         request.queue_url = self.url.clone();
-        let response = match sqs
-            .receive_message(request)
-            .with_timeout(Duration::new(1, 0))
-            .sync()
-        {
-            Ok(r) => r,
+        let response = match timeout(Duration::from_secs(1), sqs.receive_message(request)).await {
+            Ok(r) => match r {
+                Ok(r) => r,
+                Err(e) => {
+                    warn!(self.logger.log, "SQS timed out: {:?}", e);
+                    return None;
+                }
+            },
             Err(e) => {
                 warn!(self.logger.log, "SQS Rec'v Error: {:?}", e);
                 return None;
@@ -120,7 +126,7 @@ impl SyncEventQueue {
                 }
             };
             debug!(self.logger.log, "SQS event: {:?}", event);
-            self.ack_message(&event).unwrap_or_else(|e| {
+            self.ack_message(&event).await.unwrap_or_else(|e| {
                 warn!(self.logger.log, "SQS could not ack message: {:?}", e);
             });
             if event.event.to_lowercase() == "delete"
@@ -135,6 +141,7 @@ impl SyncEventQueue {
 
 #[cfg(test)]
 mod test {
+    use futures::executor::block_on;
     use rand;
     use std::collections::HashMap;
     use std::convert::TryFrom;
@@ -147,6 +154,7 @@ mod test {
     use rocket_contrib::json;
     use rusoto_core::Region;
     use rusoto_sqs::{self, Message, Sqs, SqsClient};
+    use tokio::time::timeout;
 
     use super::{SyncEvent, SyncEventQueue};
     use crate::error::Result;
@@ -168,37 +176,33 @@ mod test {
         }
     }
 
-    fn create_queue(queue: &SqsClient, queue_name: String) -> Result<String> {
+    async fn create_queue(queue: &SqsClient, queue_name: String) -> Result<String> {
         let mut request = rusoto_sqs::CreateQueueRequest::default();
         request.queue_name = format!("{}_{}", queue_name, rand::random::<u8>());
-        let response = queue
-            .create_queue(request)
-            .with_timeout(Duration::new(1, 0))
-            .sync()?;
+        let response = queue.create_queue(request).await.unwrap();
         Ok(response.queue_url.unwrap().to_owned())
     }
 
-    fn make_test_queue(queue: &SqsClient, queue_name: String) -> Result<String> {
+    async fn make_test_queue(queue: &SqsClient, queue_name: String) -> Result<String> {
         let mut request = rusoto_sqs::ListQueuesRequest::default();
         request.queue_name_prefix = Some(queue_name.to_string());
-        let response = queue
-            .list_queues(request)
-            .with_timeout(Duration::new(1, 0))
-            .sync()
-            .unwrap();
+        let response = queue.list_queues(request).await.unwrap();
         match response.queue_urls {
             Some(queues) => {
                 if queues.is_empty() {
-                    return Ok(create_queue(queue, queue_name)?);
+                    return Ok(create_queue(queue, queue_name).await?);
                 }
                 let queue = queues.first().unwrap().to_string();
                 Ok(queue)
             }
-            None => Ok(create_queue(queue, queue_name)?),
+            None => Ok(create_queue(queue, queue_name).await?),
         }
     }
 
-    fn load_record(queue_name: String, data: String) -> (String, rusoto_sqs::SendMessageResult) {
+    async fn load_record(
+        queue_name: String,
+        data: String,
+    ) -> (String, rusoto_sqs::SendMessageResult) {
         let region = env::var("AWS_LOCAL_SQS")
             .map(|endpoint| Region::Custom {
                 endpoint,
@@ -206,25 +210,24 @@ mod test {
             })
             .unwrap_or(Region::default());
         let queue = SqsClient::new(region);
-        let queue_url = make_test_queue(&queue, queue_name).unwrap();
+        let queue_url = make_test_queue(&queue, queue_name).await.unwrap();
         let msg_request = rusoto_sqs::SendMessageRequest {
             message_body: data.clone(),
             queue_url: queue_url.clone(),
             ..Default::default()
         };
-        (queue_url, queue.send_message(msg_request).sync().unwrap())
+        (queue_url, queue.send_message(msg_request).await.unwrap())
     }
 
-    fn kill_queue(queue: &SyncEventQueue, queue_url: String, count: u8) {
+    async fn kill_queue(queue: &SyncEventQueue, queue_url: String, count: u8) {
         let mut request = rusoto_sqs::DeleteQueueRequest::default();
         request.queue_url = queue_url.clone();
         // Try a few times because, again, AWS needs time for these things...
-        match queue
-            .sqs
-            .clone()
-            .delete_queue(request)
-            .with_timeout(Duration::new(1, 0))
-            .sync()
+        match timeout(
+            Duration::from_secs(1),
+            queue.sqs.clone().delete_queue(request),
+        )
+        .await
         {
             Ok(_) => return,
             Err(err) => {
@@ -233,7 +236,7 @@ mod test {
                     panic!("Could not clean up queue {:?}", err);
                 }
                 thread::sleep(Duration::new(1, 0));
-                kill_queue(queue, queue_url.clone(), count + 1);
+                block_on(kill_queue(queue, queue_url.clone(), count + 1));
             }
         };
     }
@@ -271,19 +274,22 @@ mod test {
     fn test_fetch_delete() {
         let data = json!({"event": "delete", "uid": "test_test"});
         // create a unique queue to prevent corruption.
-        let (queue_url, _) = load_record("rustbox_test_queue".to_owned(), data.to_string());
+        let (queue_url, _) = block_on(load_record(
+            "rustbox_test_queue".to_owned(),
+            data.to_string(),
+        ));
         let mut options = Table::new();
         options.insert("sqs_url".to_owned(), Value::from(queue_url.clone()));
         let queue = setup(queue_url.clone());
         // Give AWS a couple of seconds to process things.
         thread::sleep(Duration::new(2, 0));
-        match queue.fetch() {
+        match block_on(queue.fetch()) {
             Some(r) => {
                 assert_eq!(&r.uid, "test_test");
                 assert_eq!(&r.event, "delete")
             }
             None => {
-                kill_queue(&queue, queue_url, 0);
+                block_on(kill_queue(&queue, queue_url, 0));
                 panic!("Message not found.");
             }
         };
@@ -319,6 +325,6 @@ mod test {
         */
 
         //TODO: Verify stuffs
-        kill_queue(&queue, queue_url, 0);
+        block_on(kill_queue(&queue, queue_url, 0));
     }
 }
