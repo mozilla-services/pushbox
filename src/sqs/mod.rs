@@ -84,9 +84,10 @@ impl SyncEventQueue {
     /// Acknowledge a received SQS message by deleting it from the queue.
     pub async fn ack_message(&self, event: &SyncEvent) -> Result<()> {
         let sqs = self.sqs.clone();
-        let mut request = DeleteMessageRequest::default();
-        request.queue_url = self.url.clone();
-        request.receipt_handle = event.handle.clone();
+        let request = DeleteMessageRequest {
+            queue_url: self.url.clone(),
+            receipt_handle: event.handle.clone(),
+        };
         debug!(self.logger.log, "SQS Acking message {:?}", request);
         timeout(Duration::from_secs(1), sqs.delete_message(request))
             .await

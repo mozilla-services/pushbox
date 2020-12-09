@@ -33,14 +33,10 @@ pub fn run_embedded_migrations(config: &Config) -> Result<()> {
             HandlerErrorKind::GeneralError("Invalid or undefined ROCKET_DATABASE_URL".to_string())
         })?
         .to_string();
-    let conn = MysqlConnection::establish(&database_url).map_err(|err| {
-        println!("### CONNECTION ERROR {:?}", err);
-        HandlerErrorKind::ServiceErrorDB
-    })?;
-    embedded_migrations::run(&conn).map_err(|err| {
-        println!("### MIGRATION ERROR {:?}", err);
-        HandlerErrorKind::ServiceErrorDB
-    })?;
+    let conn = MysqlConnection::establish(&database_url)
+        .map_err(|err| HandlerErrorKind::ConnectionErrorDb(err.to_string()))?;
+    embedded_migrations::run(&conn)
+        .map_err(|err| HandlerErrorKind::MigrationErrorDb(err.to_string()))?;
     Ok(())
 }
 

@@ -57,6 +57,10 @@ pub enum HandlerErrorKind {
     //NotFound,
     #[error("A database error occurred")]
     ServiceErrorDB,
+    #[error("Could not connect to database: {:?}", _0)]
+    ConnectionErrorDb(String),
+    #[error("Could not initialize database: {:?}", _0)]
+    MigrationErrorDb(String),
     #[error("General error: {:?}", _0)]
     GeneralError(String),
     // Note: Make sure that if display has an argument, the label includes the argument,
@@ -71,7 +75,9 @@ impl HandlerErrorKind {
     pub fn http_status(&self) -> Status {
         match self {
             // HandlerErrorKind::NotFound => Status::NotFound,
-            HandlerErrorKind::ServiceErrorDB => Status::ServiceUnavailable,
+            HandlerErrorKind::ServiceErrorDB
+            | HandlerErrorKind::ConnectionErrorDb(_)
+            | HandlerErrorKind::MigrationErrorDb(_) => Status::ServiceUnavailable,
             HandlerErrorKind::ServiceErrorFxA(_) => Status::BadGateway,
             HandlerErrorKind::GeneralError(_) => Status::InternalServerError,
             HandlerErrorKind::InvalidOptionIndex(_)
@@ -92,7 +98,9 @@ impl HandlerErrorKind {
             HandlerErrorKind::InvalidOptionIndex(_) => 402,
             HandlerErrorKind::InvalidOptionLimit(_) => 403,
             HandlerErrorKind::InvalidOptionStatus(_) => 404,
-            HandlerErrorKind::ServiceErrorDB => 501,
+            HandlerErrorKind::ServiceErrorDB
+            | HandlerErrorKind::ConnectionErrorDb(_)
+            | HandlerErrorKind::MigrationErrorDb(_) => 501,
             HandlerErrorKind::ServiceErrorFxA(_) => 510,
             HandlerErrorKind::GeneralError(_) => 500,
         }
