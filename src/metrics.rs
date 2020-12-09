@@ -97,7 +97,7 @@ impl Metrics {
             Err(ConfigError::Missing(_)) => Self::sink(),
             Err(e) => {
                 error!(logging.log, "Could not build metric: {:?}", e);
-                return Err(error::HandlerErrorKind::GeneralError(format!("{:?}", e)).into())
+                return Err(error::HandlerErrorKind::GeneralError(format!("{:?}", e)).into());
             }
         };
         Ok(Metrics {

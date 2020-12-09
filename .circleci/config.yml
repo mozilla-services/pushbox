@@ -15,10 +15,54 @@ defaults:
               if [ "${DOCKER_USER}" == "" ] || [ "${DOCKER_PASS}" == "" ]; then
                   echo "Skipping Login to Dockerhub, no credentials."
               else
+                  echo "### Logging into DockerHub"
                   echo "${DOCKER_PASS}" | docker login -u="${DOCKER_USER}" --password-stdin
               fi
-
 jobs:
+  test:
+    docker:
+      # include nightly so we don't have to build rust
+      - image: rustlang/rust:nightly-buster-slim
+        auth:
+          username: $DOCKER_USER
+          password: $DOCKER_PASS
+      # pin to 5.7 to avoid problems with caching_sha2_password
+      - image: circleci/mysql:5.7
+        auth:
+          username: $DOCKER_USER
+          password: $DOCKER_PASS
+        environment:
+          MYSQL_USER: test
+          MYSQL_DATABASE: pushbox
+          MYSQL_PASSWORD: test
+          MYSQL_ROOT_PASSWORD: rootpw
+    working_directory: /dockerflow
+    steps:
+      - run:
+          name: Install Docker build dependencies
+          command: |
+            apt update
+            apt install -y openssh-client git libssh-dev pkg-config default-libmysqlclient-dev default-mysql-client ncat
+      - checkout
+      - setup_remote_docker
+      # currently not required (note, docker must be installed for this to work)
+      # - *docker_login
+      - run:
+          name: wait for mysql
+          command: |
+            for i in `seq 1 10`;
+            do
+              nc -z 127.0.0.1 3306 && echo Success && exit 0
+              echo -n .
+              sleep 1
+            done
+            echo Failed mysql boot && exit 1
+      - run:
+          name: run cargo test
+          environment:
+            ROCKET_DATABASE_URL: mysql://test:test@127.0.0.1/pushbox
+          command: |
+            cargo test -- --nocapture
   build:
     docker:
       - image: docker:18.03.0-ce
@@ -94,11 +138,14 @@ workflows:
   version: 2
   build-test-deploy:
     jobs:
+      - test:
+          filters:
+            tags:
+              only: /.*/
       - build:
           filters:
             tags:
               only: /.*/
-
       - deploy:
           requires:
             - build

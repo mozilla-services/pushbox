@@ -75,7 +75,18 @@ impl Server {
     /// migrations required, create various guarded pool objects, and start the SQS handler
     /// (unless we're testing)
     pub fn start(rocket: rocket::Rocket) -> Result<rocket::Rocket, HandlerError> {
-        db::run_embedded_migrations(rocket.config())?;
+        // tests on circle can re-run the embedded migrations. this can fail because of
+        // index recreations.
+        match db::run_embedded_migrations(rocket.config()) {
+            Ok(_) => {}
+            Err(e) => {
+                if cfg!(test) {
+                    dbg!("Encountered possible error: {:?}", e);
+                } else {
+                    return Err(e);
+                }
+            }
+        };
 
         let db_pool = db::pool_from_config(rocket.config()).expect("Could not get pool");
         let sqs_config = rocket.config().clone();
@@ -569,6 +580,7 @@ mod test {
         let config = rocket_config(default_config_data());
         let client = rocket_client(config);
         let url = format!("/v1/store/{}/{}", user_id(), device_id());
+        dbg!("step 1");
         let mut write_result = client
             .post(url.clone())
             .header(Header::new("Authorization", "bearer token"))
@@ -582,6 +594,7 @@ mod test {
                 .expect("Empty body string for write"),
         )
         .expect("Could not parse write response body");
+        dbg!("step 2");
         let mut read_result = client
             .get(url.clone())
             .header(Header::new("Authorization", "bearer token"))
@@ -589,6 +602,7 @@ mod test {
             .header(Header::new("FxA-Request-Id", "foobar123"))
             .dispatch();
         assert!(read_result.status() == rocket::http::Status::raw(200));
+        dbg!("step 3");
         let mut read_json: ReadResp = serde_json::from_str(
             &read_result
                 .body_string()
@@ -596,11 +610,12 @@ mod test {
         )
         .expect("Could not parse read response");
 
+        dbg!("step 3");
         assert!(read_json.status == 200);
         assert!(read_json.messages.len() > 0);
         // a MySql race condition can cause this to fail.
         assert!(write_json.index <= read_json.index);
-
+        dbg!("step 4");
         // return the message at index
         read_result = client
             .get(format!("{}?index={}&limit=1", url, write_json.index))
@@ -615,12 +630,14 @@ mod test {
                 .expect("Empty body for read query"),
         )
         .expect("Could not parse read query body");
+        dbg!("step 5");
         assert!(read_json.status == 200);
         assert!(read_json.messages.len() == 1);
         // a MySql race condition can cause these to fail.
         assert!(&read_json.index == &write_json.index);
         assert!(&read_json.messages[0].index == &write_json.index);
 
+        dbg!("step 6");
         // no data, no panic
         let empty_url = format!("/v1/store/{}/{}", user_id(), device_id());
         read_result = client
@@ -638,6 +655,7 @@ mod test {
         assert!(read_json.status == 200);
         assert!(read_json.messages.len() == 0);
 
+        dbg!("step 7");
         // cleanup
         client
             .delete(url.clone())
