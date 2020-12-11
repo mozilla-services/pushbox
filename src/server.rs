@@ -7,11 +7,13 @@ use std::{thread, time};
 
 use crate::auth::{AuthType, FxAAuthenticator};
 use crate::config::ServerConfig;
-use crate::db::models::DatabaseManager;
-use crate::db::{self, Conn, MysqlPool};
+use crate::db::{self, models::DatabaseManager, Conn, MysqlPool};
 use crate::error::{HandlerError, HandlerErrorKind, HandlerResult};
 use crate::logging::RBLogger;
+use crate::metrics::Metrics;
 use crate::sqs::{self, SyncEvent};
+use crate::tags::Tags;
+
 use rocket::config;
 use rocket::fairing::AdHoc;
 use rocket::http::{Method, RawStr, Status};
@@ -102,8 +104,13 @@ impl Server {
                 let pool = db::pool_from_config(rocket.config()).expect("Could not get pool");
                 let rbconfig = ServerConfig::new(rocket.config());
                 let logger = RBLogger::new(rocket.config());
+                let metrics = Metrics::init(rocket.config()).expect("Could not init metrics");
                 info!(logger.log, "sLogging initialized...");
-                Ok(rocket.manage(rbconfig).manage(pool).manage(logger))
+                Ok(rocket
+                    .manage(rbconfig)
+                    .manage(pool)
+                    .manage(logger)
+                    .manage(metrics))
             }))
             .mount("/v1/store", routes![read, write, delete, delete_user])
             .mount("/", routes![version, heartbeat, lbheartbeat]))
@@ -212,6 +219,7 @@ fn read<'r>(
     index: Option<Result<u64, &'r RawStr>>,
     limit: Option<Result<u64, &'r RawStr>>,
     status: Option<Result<String, &'r RawStr>>,
+    metrics: Metrics,
 ) -> Result<JsonValue, HandlerError> {
     let mut index = index
         .transpose()
@@ -227,6 +235,15 @@ fn read<'r>(
     // against FxA and the method, and either returns OK or an error. We need to reraise it to the
     // handler.
     let request_id = headers.headers.get("request_id");
+
+    let mut tags = Tags::default();
+    tags.extra.insert("user_id".to_owned(), user_id.clone());
+    tags.extra.insert("device_id".to_owned(), device_id.clone());
+    tags.extra
+        .insert("request_id".to_owned(), format!("{:?}", request_id));
+    tags.tags
+        .insert("status".to_owned(), status.clone().unwrap_or_default());
+
     debug!(logger.log, "Handling Read";
            "user_id" => &user_id,
            "device_id" => &device_id,
@@ -262,6 +279,8 @@ fn read<'r>(
     let messages =
         DatabaseManager::read_records(&conn, &user_id, &device_id, &index, &limit).unwrap();
     let mut msg_max: u64 = 0;
+    tags.extra
+        .insert("msg_count".to_owned(), messages.len().to_string());
     for message in &messages {
         msg_max = cmp::max(msg_max, message.idx as u64);
     }
@@ -279,6 +298,7 @@ fn read<'r>(
             .map(|last| (last.idx as u64) == max_index)
             .unwrap_or(true),
     };
+    metrics.incr_with_tags("pushbox.cmd.get", Some(tags));
     Ok(json!({
         "last": is_last,
         "index": msg_max,
@@ -305,8 +325,16 @@ fn write(
     user_id: String,
     device_id: String,
     data: Json<DataRecord>,
+    metrics: Metrics,
 ) -> Result<JsonValue, HandlerError> {
     let request_id = headers.headers.get("request_id");
+
+    let mut tags = Tags::default();
+    tags.extra.insert("user_id".to_owned(), user_id.clone());
+    tags.extra.insert("device_id".to_owned(), device_id.clone());
+    tags.extra
+        .insert("request_id".to_owned(), format!("{:?}", request_id));
+
     check_token(&config, Method::Post, &device_id, &token)?;
     if config
         .test_data
@@ -337,6 +365,7 @@ fn write(
     if response.is_err() {
         return Err(response.err().unwrap());
     }
+    metrics.incr_with_tags("pushbox.cmd.post", Some(tags));
     // returns json {"status": 200, "index": #}
     Ok(json!({
         "status": 200,
@@ -355,9 +384,14 @@ fn delete(
     token: HandlerResult<FxAAuthenticator>,
     user_id: String,
     device_id: String,
+    metrics: Metrics,
 ) -> Result<JsonValue, HandlerError> {
+    let mut tags = Tags::default();
+    tags.extra.insert("user_id".to_owned(), user_id.clone());
+    tags.extra.insert("device_id".to_owned(), device_id.clone());
     check_token(&config, Method::Delete, &device_id, &token)?;
     DatabaseManager::delete(&conn, &user_id, &device_id)?;
+    metrics.incr_with_tags("pushbox.cmd.del", Some(tags));
     // returns an empty object
     Ok(json!({}))
 }
@@ -371,10 +405,12 @@ fn delete_user(
     config: ServerConfig,
     token: HandlerResult<FxAAuthenticator>,
     user_id: String,
+    metrics: Metrics,
 ) -> Result<JsonValue, HandlerError> {
     check_token(&config, Method::Delete, &String::from(""), &token)?;
     DatabaseManager::delete(&conn, &user_id, &String::from(""))?;
     // returns an empty object
+    metrics.incr("pushbox.cmd.del_user");
     Ok(json!({}))
 }
 

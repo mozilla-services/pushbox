@@ -3,8 +3,6 @@ use rocket::request::{self, FromRequest};
 use rocket::{Outcome, Request, State};
 use slog::o;
 use slog::Drain;
-use slog_async;
-use slog_term;
 
 #[derive(Clone, Debug)]
 pub struct RBLogger {

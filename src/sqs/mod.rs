@@ -8,7 +8,6 @@ use std::time::Duration;
 use rocket::Config;
 use rusoto_core::Region;
 use rusoto_sqs::{DeleteMessageRequest, Message, ReceiveMessageRequest, Sqs, SqsClient};
-use serde_json;
 use slog::{debug, warn};
 use tokio::time::timeout;
 
