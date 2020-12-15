@@ -75,7 +75,18 @@ impl Server {
     /// migrations required, create various guarded pool objects, and start the SQS handler
     /// (unless we're testing)
     pub fn start(rocket: rocket::Rocket) -> Result<rocket::Rocket, HandlerError> {
-        db::run_embedded_migrations(rocket.config())?;
+        // tests on circle can re-run the embedded migrations. this can fail because of
+        // index recreations.
+        match db::run_embedded_migrations(rocket.config()) {
+            Ok(_) => {}
+            Err(e) => {
+                if cfg!(test) {
+                    dbg!("Encountered possible error: {:?}", e);
+                } else {
+                    return Err(e);
+                }
+            }
+        };
 
         let db_pool = db::pool_from_config(rocket.config()).expect("Could not get pool");
         let sqs_config = rocket.config().clone();
@@ -600,7 +611,6 @@ mod test {
         assert!(read_json.messages.len() > 0);
         // a MySql race condition can cause this to fail.
         assert!(write_json.index <= read_json.index);
-
         // return the message at index
         read_result = client
             .get(format!("{}?index={}&limit=1", url, write_json.index))
