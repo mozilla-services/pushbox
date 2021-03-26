@@ -100,8 +100,10 @@ impl SyncEventQueue {
     pub async fn fetch(&self) -> Option<SyncEvent> {
         let sqs = self.sqs.clone();
         // capture response via retry_if(move||{..})
-        let mut request = ReceiveMessageRequest::default();
-        request.queue_url = self.url.clone();
+        let request = ReceiveMessageRequest{
+            queue_url: self.url.clone(),
+            ..Default::default()
+        };
         let response = match timeout(Duration::from_secs(1), sqs.receive_message(request)).await {
             Ok(r) => match r {
                 Ok(r) => r,
