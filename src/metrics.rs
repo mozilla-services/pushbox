@@ -2,7 +2,7 @@ use std::net::UdpSocket;
 use std::time::Instant;
 
 use cadence::{
-    BufferedUdpMetricSink, Counted, Metric, NopMetricSink, QueuingMetricSink, StatsdClient,
+    BufferedUdpMetricSink, CountedExt, Metric, NopMetricSink, QueuingMetricSink, StatsdClient,
     StatsdClientBuilder, Timed,
 };
 use rocket::{
@@ -126,7 +126,7 @@ impl Metrics {
             }
             for key in mtags.tags.keys().clone() {
                 if let Some(val) = mtags.tags.get(key) {
-                    tagged = tagged.with_tag(&key, val.as_ref());
+                    tagged = tagged.with_tag(key, val.as_ref());
                 }
             }
             // Include any "hard coded" tags.
@@ -147,7 +147,7 @@ impl Metrics {
             let mtags = tags.unwrap_or_default();
             for key in mtags.tags.keys().clone() {
                 if let Some(val) = mtags.tags.get(key) {
-                    tagged = tagged.with_tag(&key, val.as_ref());
+                    tagged = tagged.with_tag(key, val.as_ref());
                 }
             }
             match tagged.try_send() {

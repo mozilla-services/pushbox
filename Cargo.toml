@@ -5,13 +5,13 @@ version = "0.3.0"
 edition = "2018"
 
 [dependencies]
-cadence = "0.22"
-env_logger = "0.8"
+cadence = "0.26"
+env_logger = "0.9"
 futures = "0.3"
-mysql = "20.1"
-rand = "0.7.3"
-rand_core = "0.5.1"
-reqwest = { version = "0.10", features = ["blocking", "gzip", "json"] }
+mysql = "21.0"
+rand = "0.8"
+rand_core = "0.6"
+reqwest = { version = "0.11", features = ["blocking", "gzip", "json"] }
 rocket = "0.4"
 rocket_codegen = "0.4"
 # rusoto > 0.42 is async / future based
@@ -26,12 +26,12 @@ slog-json = "2.3.0"
 slog-scope = "4.3.0"
 slog-stdlog = "4.1"
 slog-term = "2.6"
-time = "0.2"
+time = "0.3"
 diesel = { version = "1.4", features = ["mysql", "r2d2"] }
 diesel_migrations = { version = "1.4.0", features = ["mysql"] }
 rocket_contrib = { version = "0.4", default-features = true }
 percent-encoding= "2.1.0"
 thiserror="1.0"
 backtrace="0.3"
-tokio = { version = "0.3.5", features = ["time"]}
-sentry = { version = "0.19", features=["with_curl_transport", "failure"]}
+tokio = { version = "0.3.5", features = ["time"]} # pin to 3.5
+sentry = { version = "0.19", features=["with_curl_transport", "failure"]} # pin to 0.19 due to ops requirement

@@ -100,8 +100,10 @@ impl SyncEventQueue {
     pub async fn fetch(&self) -> Option<SyncEvent> {
         let sqs = self.sqs.clone();
         // capture response via retry_if(move||{..})
-        let mut request = ReceiveMessageRequest::default();
-        request.queue_url = self.url.clone();
+        let request = ReceiveMessageRequest {
+            queue_url: self.url.clone(),
+            ..Default::default()
+        };
         let response = match timeout(Duration::from_secs(1), sqs.receive_message(request)).await {
             Ok(r) => match r {
                 Ok(r) => r,
@@ -168,7 +170,7 @@ mod test {
                 endpoint,
                 name: "env_var".to_string(),
             })
-            .unwrap_or(Region::default());
+            .unwrap_or_default();
         SyncEventQueue {
             sqs: Rc::new(SqsClient::new(region)),
             url: queue_url,
@@ -177,20 +179,24 @@ mod test {
     }
 
     async fn create_queue(queue: &SqsClient, queue_name: String) -> Result<String> {
-        let mut request = rusoto_sqs::CreateQueueRequest::default();
-        request.queue_name = format!("{}_{}", queue_name, rand::random::<u8>());
+        let request = rusoto_sqs::CreateQueueRequest {
+            queue_name: format!("{}_{}", queue_name, rand::random::<u8>()),
+            ..Default::default()
+        };
         let response = queue.create_queue(request).await.unwrap();
-        Ok(response.queue_url.unwrap().to_owned())
+        Ok(response.queue_url.unwrap())
     }
 
     async fn make_test_queue(queue: &SqsClient, queue_name: String) -> Result<String> {
-        let mut request = rusoto_sqs::ListQueuesRequest::default();
-        request.queue_name_prefix = Some(queue_name.to_string());
+        let request = rusoto_sqs::ListQueuesRequest {
+            queue_name_prefix: Some(queue_name.to_string()),
+            ..Default::default()
+        };
         let response = queue.list_queues(request).await.unwrap();
         match response.queue_urls {
             Some(queues) => {
                 if queues.is_empty() {
-                    return Ok(create_queue(queue, queue_name).await?);
+                    return create_queue(queue, queue_name).await;
                 }
                 let queue = queues.first().unwrap().to_string();
                 Ok(queue)
@@ -208,7 +214,7 @@ mod test {
                 endpoint,
                 name: "env_var".to_string(),
             })
-            .unwrap_or(Region::default());
+            .unwrap_or_default();
         let queue = SqsClient::new(region);
         let queue_url = make_test_queue(&queue, queue_name).await.unwrap();
         let msg_request = rusoto_sqs::SendMessageRequest {
@@ -220,8 +226,9 @@ mod test {
     }
 
     async fn kill_queue(queue: &SyncEventQueue, queue_url: String, count: u8) {
-        let mut request = rusoto_sqs::DeleteQueueRequest::default();
-        request.queue_url = queue_url.clone();
+        let request = rusoto_sqs::DeleteQueueRequest {
+            queue_url: queue_url.clone(),
+        };
         // Try a few times because, again, AWS needs time for these things...
         match timeout(
             Duration::from_secs(1),
@@ -229,7 +236,7 @@ mod test {
         )
         .await
         {
-            Ok(_) => return,
+            Ok(_) => {}
             Err(err) => {
                 println!("Oops: {:?}, try:{:?}", err, count);
                 if count > 3 {
