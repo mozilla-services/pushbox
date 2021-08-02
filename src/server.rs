@@ -67,7 +67,7 @@ impl Server {
         let conn = &pool
             .get()
             .map_err(|e| HandlerErrorKind::GeneralError(e.to_string()))?;
-        db::models::DatabaseManager::delete(&conn, &event.uid, &event.id)?;
+        db::models::DatabaseManager::delete(conn, &event.uid, &event.id)?;
         Ok(())
     }
 
@@ -504,16 +504,15 @@ mod test {
             .unwrap_or("oauth.stage.mozaws.net");
 
         let db_url = env::var("ROCKET_DATABASE_URL")
-            .unwrap_or(String::from("mysql://test:test@localhost/pushbox"));
-        let config = Config::build(Environment::Development)
+            .unwrap_or_else(|_| String::from("mysql://test:test@localhost/pushbox"));
+        Config::build(Environment::Development)
             .extra("fxa_host", fxa_host)
             .extra("database_url", db_url)
             .extra("dryrun", true)
             .extra("auth_app_name", "pushbox")
             .extra("test_data", test_data)
             .finalize()
-            .unwrap();
-        config
+            .unwrap()
     }
 
     fn rocket_client(config: Config) -> Client {
@@ -522,10 +521,13 @@ mod test {
     }
 
     fn device_id() -> String {
-        thread_rng()
-            .sample_iter(&distributions::Alphanumeric)
-            .take(8)
-            .collect()
+        String::from_utf8(
+            thread_rng()
+                .sample_iter(&distributions::Alphanumeric)
+                .take(8)
+                .collect(),
+        )
+        .unwrap()
     }
 
     fn user_id() -> String {
@@ -568,7 +570,7 @@ mod test {
 
         // cleanup
         client
-            .delete(url.clone())
+            .delete(url)
             .header(Header::new("Authorization", "bearer token"))
             .header(Header::new("Content-Type", "application/json"))
             .header(Header::new("FxA-Request-Id", "foobar123"))
@@ -608,7 +610,7 @@ mod test {
         .expect("Could not parse read response");
 
         assert!(read_json.status == 200);
-        assert!(read_json.messages.len() > 0);
+        assert!(!read_json.messages.is_empty());
         // a MySql race condition can cause this to fail.
         assert!(write_json.index <= read_json.index);
         // return the message at index
@@ -628,8 +630,8 @@ mod test {
         assert!(read_json.status == 200);
         assert!(read_json.messages.len() == 1);
         // a MySql race condition can cause these to fail.
-        assert!(&read_json.index == &write_json.index);
-        assert!(&read_json.messages[0].index == &write_json.index);
+        assert!(read_json.index == write_json.index);
+        assert!(read_json.messages[0].index == write_json.index);
 
         // no data, no panic
         let empty_url = format!("/v1/store/{}/{}", user_id(), device_id());
@@ -646,11 +648,11 @@ mod test {
         )
         .expect("Could not parse read query body");
         assert!(read_json.status == 200);
-        assert!(read_json.messages.len() == 0);
+        assert!(read_json.messages.is_empty());
 
         // cleanup
         client
-            .delete(url.clone())
+            .delete(url)
             .header(Header::new("Authorization", "bearer token"))
             .header(Header::new("Content-Type", "application/json"))
             .header(Header::new("FxA-Request-Id", "foobar123"))
@@ -712,7 +714,7 @@ mod test {
         res_str = read_result.body_string().expect("Empty read body string");
         let mut read_json: ReadResp =
             serde_json::from_str(&res_str).expect("Could not parse ready body");
-        assert!(read_json.messages.len() == 0);
+        assert!(read_json.messages.is_empty());
 
         let read_result = client
             .delete(format!("/v1/store/{}", user_id))
@@ -724,7 +726,7 @@ mod test {
         assert!(del_result.body_string() == None);
 
         let mut read_result = client
-            .get(url.clone())
+            .get(url)
             .header(Header::new("Authorization", "bearer token"))
             .header(Header::new("Content-Type", "application/json"))
             .header(Header::new("FxA-Request-Id", "foobar123"))
@@ -736,7 +738,7 @@ mod test {
                 .expect("Empty verification body string"),
         )
         .expect("Could not parse verification body string");
-        assert!(read_json.messages.len() == 0);
+        assert!(read_json.messages.is_empty());
     }
 
     #[test]
