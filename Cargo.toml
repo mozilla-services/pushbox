@@ -1,7 +1,7 @@
 [package]
 authors = ["jrconlin <jconlin+git@mozilla.com>"]
 name = "pushbox"
-version = "0.3.0"
+version = "0.3.2"
 edition = "2018"
 
 [dependencies]
