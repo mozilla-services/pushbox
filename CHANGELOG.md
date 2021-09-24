@@ -1,3 +1,11 @@
+<a name="0.3.2"></a>
+## 0.3.2 (2021-09-24)
+
+#### Bug Fixes
+
+* fix db healthcheck [dc3a09922](https://github.com/mozilla-services/pushbox/commit/dc3a099220287bf3bbec942bd838dd0b8cfa4717), closes [#85](https://github.com/mozilla-services/pushbox/issues/85)
+* include updates for 2021 Q3
+
 <a name="0.3.0"></a>
 ## 0.3.0 (2020-02-29)
 
@@ -86,6 +94,3 @@
 #### Refactor
 
 *   Convert to rust (#20) ([5ff075a5](https://github.com/mozilla-services/pushbox/commit/5ff075a5b4db8f687d7e197b7a6717cd3d77bcc1), closes [#16](https://github.com/mozilla-services/pushbox/issues/16))
-
-
-
