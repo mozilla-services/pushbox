@@ -63,6 +63,7 @@ pub fn pool_from_config(config: &Config) -> Result<MysqlPool> {
 pub fn health_check(conn: &MysqlConnection) -> StdResult<(), DieselError> {
     match pushboxv1::table
         .select(sql::<Integer>("1"))
+        .limit(1)
         .get_result::<i32>(conn)
     {
         Ok(_) | Err(DieselError::NotFound) => Ok(()),
