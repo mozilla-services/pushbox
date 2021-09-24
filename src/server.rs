@@ -476,23 +476,17 @@ mod test {
     #[derive(Debug, Deserialize)]
     struct WriteResp {
         index: u64,
-        status: u32,
-        request_id: Option<String>,
     }
 
     #[derive(Debug, Deserialize)]
     struct Msg {
         index: u64,
-        data: String,
-        request_id: Option<String>,
     }
 
     #[derive(Debug, Deserialize)]
     struct ReadResp {
         status: u32,
         index: u64,
-        last: bool,
-        request_id: Option<String>,
         messages: Vec<Msg>,
     }
 

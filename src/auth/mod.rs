@@ -46,10 +46,6 @@ pub enum AuthType {
 /// is sent off for successful verification.
 #[derive(Clone, Deserialize, Debug)]
 pub struct FxAResp {
-    /// The FxA user identifier (ignored by rustbox)
-    user: String,
-    /// The FxA client identifier (ignored by rustbox)
-    client_id: String,
     /// A string of access scopes which are URL like identifiers desginating access privileges.
     scope: Vec<String>,
 }
@@ -127,17 +123,7 @@ impl FxAAuthenticator {
                         .to_string(),
                 );
             }
-            FxAResp {
-                user: data["user"]
-                    .as_str()
-                    .expect("Missing user info for test")
-                    .to_string(),
-                client_id: data["client_id"]
-                    .as_str()
-                    .expect("Missing client_id for test")
-                    .to_string(),
-                scope: fscopes,
-            }
+            FxAResp { scope: fscopes }
         } else {
             // get the FxA Validiator response.
             let raw_resp = match client.post(&fxa_url).json(&body).send() {
