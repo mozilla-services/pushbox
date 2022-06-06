@@ -33,5 +33,5 @@ rocket_contrib = { version = "0.4", default-features = true }
 percent-encoding= "2.1.0"
 thiserror="1.0"
 backtrace="0.3"
-tokio = { version = "0.3.5", features = ["time"]} # pin to 3.5
+tokio = { version = "1.12.0", features = ["time"]} # pin to 3.5
 sentry = { version = "0.19", features=["with_curl_transport", "failure"]} # pin to 0.19 due to ops requirement
